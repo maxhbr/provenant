@@ -119,6 +119,14 @@ fn has_full_match_coverage(m: &LicenseMatch) -> bool {
     ((m.match_coverage * 100.0).round() / 100.0) == 100.0
 }
 
+fn has_overlap(m: &LicenseMatch, bitset: &BitSet) -> bool {
+    if let Some(positions) = &m.qspan_positions {
+        positions.iter().any(|&p| bitset.contains(p))
+    } else {
+        (m.start_token..m.end_token).any(|p| bitset.contains(p))
+    }
+}
+
 fn is_redundant_same_expression_seq_container(
     container: &LicenseMatch,
     candidate_contained_matches: &[LicenseMatch],
@@ -137,8 +145,7 @@ fn is_redundant_same_expression_seq_container(
             if m.matcher == MatcherKind::Aho
                 && has_full_match_coverage(m)
                 && m.license_expression == container.license_expression
-                && (container.qcontains_with_set(m, &container_qspan_set)
-                    || container.qoverlap_with_set(m, &container_qspan_set) > 0)
+                && has_overlap(m, &container_qspan_set)
             {
                 Some((m, m.qspan()))
             } else {
@@ -260,8 +267,7 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
             if m.matcher == aho_match::MATCH_AHO
                 && has_full_match_coverage(m)
                 && m.license_expression != container.license_expression
-                && (container.qcontains_with_set(m, &container_qspan_set)
-                    || container.qoverlap_with_set(m, &container_qspan_set) > 0)
+                && has_overlap(m, &container_qspan_set)
             {
                 Some((m, m.qspan()))
             } else {

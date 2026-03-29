@@ -150,12 +150,7 @@ fn python_round_tenths(value: f64) -> f32 {
 }
 
 fn quantize_tenths(value: f32) -> i32 {
-    format!("{value:.1}")
-        .chars()
-        .filter(|c| *c != '.')
-        .collect::<String>()
-        .parse()
-        .unwrap_or(0)
+    ((value * 10.0).round()) as i32
 }
 
 fn build_score_vectors(
