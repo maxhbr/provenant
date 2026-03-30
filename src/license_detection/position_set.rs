@@ -2,52 +2,94 @@ use bit_set::BitSet;
 
 /// A set of usize positions stored as a BitSet.
 /// Provides O(1) membership testing and efficient set operations.
+/// Caches bounds for cheap overlap pre-checks.
 #[derive(Clone, Debug)]
-pub struct PositionSet(BitSet);
+pub struct PositionSet {
+    bitset: BitSet,
+    min_pos: usize,
+    max_pos: usize,
+}
 
 impl PositionSet {
     /// Create a PositionSet from an iterator of usize positions.
     pub fn from_usize_iter<I: IntoIterator<Item = usize>>(iter: I) -> Self {
         let mut bitset = BitSet::new();
+        let mut min_pos = usize::MAX;
+        let mut max_pos = 0;
+
         for pos in iter {
             bitset.insert(pos);
+            min_pos = min_pos.min(pos);
+            max_pos = max_pos.max(pos);
         }
-        Self(bitset)
+
+        Self {
+            bitset,
+            min_pos,
+            max_pos,
+        }
     }
 
     /// Create an empty PositionSet.
     pub fn new() -> Self {
-        Self(BitSet::new())
+        Self {
+            bitset: BitSet::new(),
+            min_pos: usize::MAX,
+            max_pos: 0,
+        }
     }
 
     /// Number of positions in the set.
     pub fn len(&self) -> usize {
-        self.0.count()
+        self.bitset.count()
     }
 
     /// Is the set empty?
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.min_pos == usize::MAX
     }
 
     /// Insert a position.
     pub fn insert(&mut self, pos: usize) -> bool {
-        self.0.insert(pos)
+        let inserted = self.bitset.insert(pos);
+        if inserted {
+            self.min_pos = self.min_pos.min(pos);
+            self.max_pos = self.max_pos.max(pos);
+        }
+        inserted
     }
 
     /// Check if position is in the set.
     pub fn contains(&self, pos: usize) -> bool {
-        self.0.contains(pos)
+        self.bitset.contains(pos)
+    }
+
+    /// Quick check if a range [range_start, range_end) might overlap with this set.
+    /// Returns true if the bounding boxes overlap, false if they definitely don't.
+    /// This is O(1) and used as a pre-filter before the expensive BitSet check.
+    #[inline]
+    pub fn may_overlap_range(&self, range_start: usize, range_end: usize) -> bool {
+        // min_pos == usize::MAX means empty set (see new())
+        if self.min_pos == usize::MAX {
+            return false;
+        }
+        range_end > self.min_pos && range_start <= self.max_pos
     }
 
     /// Return the difference (elements in self but not in other).
     pub fn difference(&self, other: &PositionSet) -> PositionSet {
-        Self(self.0.difference(&other.0).collect())
+        let mut result = PositionSet::new();
+        for pos in self.bitset.iter() {
+            if !other.bitset.contains(pos) {
+                result.insert(pos);
+            }
+        }
+        result
     }
 
     /// Iterate over positions.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.0.iter()
+        self.bitset.iter()
     }
 }
 

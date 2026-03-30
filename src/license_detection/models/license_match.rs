@@ -716,8 +716,24 @@ impl LicenseMatch {
 
     pub fn overlaps_with(&self, other: &PositionSet) -> bool {
         if let Some(positions) = &self.qspan_positions {
+            // positions is sorted, so first/last give us bounds
+            if positions.is_empty() {
+                return false;
+            }
+            let my_min = positions[0];
+            let my_max = positions[positions.len() - 1];
+
+            // Bounds pre-check using PositionSet's cached bounds
+            if !other.may_overlap_range(my_min, my_max + 1) {
+                return false;
+            }
+
             positions.iter().any(|&p| other.contains(p))
         } else {
+            // Contiguous range
+            if !other.may_overlap_range(self.start_token, self.end_token) {
+                return false;
+            }
             (self.start_token..self.end_token).any(|p| other.contains(p))
         }
     }
