@@ -1,6 +1,5 @@
 //! License match result from a matching strategy.
 
-use bit_set::BitSet;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -8,6 +7,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use crate::license_detection::models::RuleKind;
+use crate::license_detection::position_set::PositionSet;
 
 fn default_rule_length() -> usize {
     0
@@ -714,19 +714,27 @@ impl LicenseMatch {
         }
     }
 
-    pub fn qspan_bitset(&self) -> BitSet {
+    pub fn overlaps_with(&self, other: &PositionSet) -> bool {
         if let Some(positions) = &self.qspan_positions {
-            let mut bitset = BitSet::new();
-            for &pos in positions {
-                bitset.insert(pos);
+            // positions is sorted, so first/last give us bounds
+            if positions.is_empty() {
+                return false;
             }
-            bitset
+            let my_min = positions[0];
+            let my_max = positions[positions.len() - 1];
+
+            // Bounds pre-check using PositionSet's cached bounds
+            if !other.may_overlap_range(my_min, my_max + 1) {
+                return false;
+            }
+
+            positions.iter().any(|&p| other.contains(p))
         } else {
-            let mut bitset = BitSet::new();
-            for pos in self.start_token..self.end_token {
-                bitset.insert(pos);
+            // Contiguous range
+            if !other.may_overlap_range(self.start_token, self.end_token) {
+                return false;
             }
-            bitset
+            (self.start_token..self.end_token).any(|p| other.contains(p))
         }
     }
 

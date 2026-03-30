@@ -4,6 +4,7 @@ pub mod aho_match;
 pub mod automaton;
 pub(crate) mod detection;
 pub mod embedded;
+mod position_set;
 mod token_set;
 
 #[cfg(test)]
@@ -77,6 +78,7 @@ pub use match_refine::{
     filter_invalid_contained_unknown_matches, merge_overlapping_matches, refine_matches,
     refine_matches_without_false_positive_filter, split_weak_matches,
 };
+pub use position_set::PositionSet;
 pub use seq_match::{
     MAX_NEAR_DUPE_CANDIDATES, compute_candidates_with_msets, seq_match_with_candidates,
 };
@@ -123,14 +125,6 @@ fn has_full_match_coverage(m: &LicenseMatch) -> bool {
     ((m.match_coverage * 100.0).round() / 100.0) == 100.0
 }
 
-fn has_overlap(m: &LicenseMatch, bitset: &BitSet) -> bool {
-    if let Some(positions) = &m.qspan_positions {
-        positions.iter().any(|&p| bitset.contains(p))
-    } else {
-        (m.start_token..m.end_token).any(|p| bitset.contains(p))
-    }
-}
-
 fn is_redundant_same_expression_seq_container(
     container: &LicenseMatch,
     candidate_contained_matches: &[LicenseMatch],
@@ -141,7 +135,7 @@ fn is_redundant_same_expression_seq_container(
         return false;
     }
 
-    let container_qspan_set: BitSet = container.qspan_bitset();
+    let container_qspan_set: PositionSet = container.qspan().into_iter().collect();
 
     let mut contained: Vec<(&LicenseMatch, Vec<usize>)> = candidate_contained_matches
         .iter()
@@ -149,7 +143,7 @@ fn is_redundant_same_expression_seq_container(
             if m.matcher == MatcherKind::Aho
                 && has_full_match_coverage(m)
                 && m.license_expression == container.license_expression
-                && has_overlap(m, &container_qspan_set)
+                && m.overlaps_with(&container_qspan_set)
             {
                 Some((m, m.qspan()))
             } else {
@@ -172,15 +166,15 @@ fn is_redundant_same_expression_seq_container(
 
     contained.sort_by_key(|(m, _)| m.qspan_bounds());
 
-    let mut child_union = BitSet::new();
+    let mut child_union = PositionSet::new();
     for (_, qspan) in &contained {
         for &pos in qspan {
             child_union.insert(pos);
         }
     }
 
-    let container_only_positions: BitSet = container_qspan_set.difference(&child_union).collect();
-    let child_only_positions: BitSet = child_union.difference(&container_qspan_set).collect();
+    let container_only_positions = container_qspan_set.difference(&child_union);
+    let child_only_positions = child_union.difference(&container_qspan_set);
 
     let mut bridge_positions = BitSet::new();
     for pair in contained.windows(2) {
@@ -197,10 +191,11 @@ fn is_redundant_same_expression_seq_container(
     }
 
     let container_only_boundary_positions = container_only_positions
-        .difference(&bridge_positions)
+        .iter()
+        .filter(|&pos| !bridge_positions.contains(pos))
         .count();
 
-    if container_only_positions.count() == 1
+    if container_only_positions.len() == 1
         && container_only_boundary_positions == 0
         && child_only_positions.is_empty()
     {
@@ -208,7 +203,7 @@ fn is_redundant_same_expression_seq_container(
     }
 
     if child_only_positions.is_empty()
-        && container_only_positions.count() == container_only_boundary_positions
+        && container_only_positions.len() == container_only_boundary_positions
         && container_only_boundary_positions <= 3
     {
         let earliest_child = contained
@@ -240,9 +235,9 @@ fn is_redundant_same_expression_seq_container(
         MAX_REDUNDANT_SEQ_CONTAINER_BOUNDARY_GAP * (contained.len() - 1);
     let max_child_only_positions = MAX_REDUNDANT_SEQ_CONTAINER_UNMATCHED_GAP + 1;
 
-    container_only_positions.count() <= max_container_only_positions
+    container_only_positions.len() <= max_container_only_positions
         && container_only_boundary_positions <= max_container_boundary_positions
-        && child_only_positions.count() <= max_child_only_positions
+        && child_only_positions.len() <= max_child_only_positions
 }
 
 fn filter_redundant_same_expression_seq_containers(
@@ -263,7 +258,7 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
         return false;
     }
 
-    let container_qspan_set: BitSet = container.qspan_bitset();
+    let container_qspan_set: PositionSet = container.qspan().into_iter().collect();
 
     let children: Vec<(&LicenseMatch, Vec<usize>)> = candidate_contained_matches
         .iter()
@@ -271,7 +266,7 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
             if m.matcher == aho_match::MATCH_AHO
                 && has_full_match_coverage(m)
                 && m.license_expression != container.license_expression
-                && has_overlap(m, &container_qspan_set)
+                && m.overlaps_with(&container_qspan_set)
             {
                 Some((m, m.qspan()))
             } else {
@@ -292,15 +287,15 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
         return false;
     }
 
-    let mut child_union = BitSet::new();
+    let mut child_union = PositionSet::new();
     for (_, qspan) in &children {
         for &pos in qspan {
             child_union.insert(pos);
         }
     }
 
-    let container_only_positions: BitSet = container_qspan_set.difference(&child_union).collect();
-    let child_only_positions: BitSet = child_union.difference(&container_qspan_set).collect();
+    let container_only_positions = container_qspan_set.difference(&child_union);
+    let child_only_positions = child_union.difference(&container_qspan_set);
 
     let mut sorted_children = children;
     sorted_children.sort_by_key(|(m, _)| m.qspan_bounds());
@@ -315,11 +310,12 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
     }
 
     let container_only_boundary_positions = container_only_positions
-        .difference(&bridge_positions)
+        .iter()
+        .filter(|&pos| !bridge_positions.contains(pos))
         .count();
 
     child_only_positions.is_empty()
-        && container_only_positions.count() <= MAX_REDUNDANT_SEQ_CONTAINER_BOUNDARY_GAP
+        && container_only_positions.len() <= MAX_REDUNDANT_SEQ_CONTAINER_BOUNDARY_GAP
         && container_only_boundary_positions <= MAX_REDUNDANT_SEQ_CONTAINER_BOUNDARY_GAP
 }
 
