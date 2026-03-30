@@ -115,7 +115,7 @@ strum = { version = "0.28.0", features = ["derive"] }
 rmp-serde = { workspace = true }
 bit-set = "0.9.1"
 daachorse = "1.0.0"
-smallvec = { version = "1", features = ["write"] }
+smallvec = { version = "1.15.1", features = ["write"] }
 
 [target.'cfg(unix)'.dependencies]
 rpmdb = { version = "0.1.0", git = "https://github.com/yybit/rpmdb-rs", rev = "8a20c8b8" }
