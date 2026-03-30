@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::license_detection::TokenSet;
 use crate::license_detection::automaton::{Automaton, AutomatonBuilder};
 use crate::license_detection::hash_match::compute_hash;
 use crate::license_detection::index::LicenseIndex;
@@ -315,9 +316,9 @@ pub fn build_index(rules: Vec<Rule>, licenses: Vec<License>) -> LicenseIndex {
     let mut rid_by_hash: HashMap<[u8; 20], usize> = HashMap::new();
     let mut rules_by_rid: Vec<Rule> = Vec::with_capacity(rules.len());
     let mut tids_by_rid: Vec<Vec<TokenId>> = Vec::with_capacity(rules.len());
-    let mut sets_by_rid: HashMap<usize, HashSet<TokenId>> = HashMap::new();
+    let mut sets_by_rid: HashMap<usize, TokenSet> = HashMap::new();
     let mut msets_by_rid: HashMap<usize, HashMap<TokenId, usize>> = HashMap::new();
-    let mut high_sets_by_rid: HashMap<usize, HashSet<TokenId>> = HashMap::new();
+    let mut high_sets_by_rid: HashMap<usize, TokenSet> = HashMap::new();
     let mut high_postings_by_rid: HashMap<usize, HashMap<TokenId, Vec<usize>>> = HashMap::new();
     let mut false_positive_rids: HashSet<usize> = HashSet::new();
     let mut approx_matchable_rids: HashSet<usize> = HashSet::new();
@@ -422,14 +423,18 @@ pub fn build_index(rules: Vec<Rule>, licenses: Vec<License>) -> LicenseIndex {
 
         let (tids_set, mset) = build_set_and_mset(&rule_token_ids);
 
-        sets_by_rid.insert(rid, tids_set.clone());
+        let tids_set_token: TokenSet =
+            TokenSet::from_u16_iter(tids_set.iter().map(|tid| tid.raw()));
+        sets_by_rid.insert(rid, tids_set_token.clone());
         msets_by_rid.insert(rid, mset.clone());
 
         let tids_set_high = high_tids_set_subset(&tids_set, &dictionary);
         let mset_high = high_multiset_subset(&mset, &dictionary);
 
+        let tids_set_high_token: TokenSet =
+            TokenSet::from_u16_iter(tids_set_high.iter().map(|tid| tid.raw()));
         if !tids_set_high.is_empty() {
-            high_sets_by_rid.insert(rid, tids_set_high.clone());
+            high_sets_by_rid.insert(rid, tids_set_high_token.clone());
         }
 
         // Build inverted index: map high-value tokens to rules containing them
@@ -730,9 +735,9 @@ fn build_index_with_automatons(
     let mut rid_by_hash: HashMap<[u8; 20], usize> = HashMap::new();
     let mut rules_by_rid: Vec<Rule> = Vec::with_capacity(rules.len() + licenses.len());
     let mut tids_by_rid: Vec<Vec<TokenId>> = Vec::with_capacity(rules.len() + licenses.len());
-    let mut sets_by_rid: HashMap<usize, HashSet<TokenId>> = HashMap::new();
+    let mut sets_by_rid: HashMap<usize, TokenSet> = HashMap::new();
     let mut msets_by_rid: HashMap<usize, HashMap<TokenId, usize>> = HashMap::new();
-    let mut high_sets_by_rid: HashMap<usize, HashSet<TokenId>> = HashMap::new();
+    let mut high_sets_by_rid: HashMap<usize, TokenSet> = HashMap::new();
     let mut high_postings_by_rid: HashMap<usize, HashMap<TokenId, Vec<usize>>> = HashMap::new();
     let mut false_positive_rids: HashSet<usize> = HashSet::new();
     let mut approx_matchable_rids: HashSet<usize> = HashSet::new();
@@ -812,14 +817,18 @@ fn build_index_with_automatons(
 
         let (tids_set, mset) = build_set_and_mset(&rule_token_ids);
 
-        sets_by_rid.insert(rid, tids_set.clone());
+        let tids_set_token: TokenSet =
+            TokenSet::from_u16_iter(tids_set.iter().map(|tid| tid.raw()));
+        sets_by_rid.insert(rid, tids_set_token.clone());
         msets_by_rid.insert(rid, mset.clone());
 
         let tids_set_high = high_tids_set_subset(&tids_set, &dictionary);
         let mset_high = high_multiset_subset(&mset, &dictionary);
 
+        let tids_set_high_token: TokenSet =
+            TokenSet::from_u16_iter(tids_set_high.iter().map(|tid| tid.raw()));
         if !tids_set_high.is_empty() {
-            high_sets_by_rid.insert(rid, tids_set_high.clone());
+            high_sets_by_rid.insert(rid, tids_set_high_token.clone());
         }
 
         if approx_matchable_rids.contains(&rid) {
@@ -925,14 +934,18 @@ fn build_index_with_automatons(
 
         let (tids_set, mset) = build_set_and_mset(&rule_token_ids);
 
-        sets_by_rid.insert(rid, tids_set.clone());
+        let tids_set_token: TokenSet =
+            TokenSet::from_u16_iter(tids_set.iter().map(|tid| tid.raw()));
+        sets_by_rid.insert(rid, tids_set_token.clone());
         msets_by_rid.insert(rid, mset.clone());
 
         let tids_set_high = high_tids_set_subset(&tids_set, &dictionary);
         let mset_high = high_multiset_subset(&mset, &dictionary);
 
+        let tids_set_high_token: TokenSet =
+            TokenSet::from_u16_iter(tids_set_high.iter().map(|tid| tid.raw()));
         if !tids_set_high.is_empty() {
-            high_sets_by_rid.insert(rid, tids_set_high.clone());
+            high_sets_by_rid.insert(rid, tids_set_high_token.clone());
         }
 
         if approx_matchable_rids.contains(&rid) {

@@ -2,11 +2,10 @@
 
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::TokenId;
-use crate::license_detection::index::token_sets::{
-    build_set_and_mset, high_multiset_subset, tids_set_counter,
-};
+use crate::license_detection::index::token_sets::{build_set_and_mset, high_multiset_subset};
 use crate::license_detection::models::Rule;
 use crate::license_detection::query::QueryRun;
+use crate::license_detection::token_set::TokenSet;
 use std::collections::{HashMap, HashSet};
 
 use super::HIGH_RESEMBLANCE_THRESHOLD;
@@ -80,7 +79,7 @@ pub struct Candidate<'a> {
     /// Reference to the rule (borrowed from LicenseIndex)
     pub rule: &'a Rule,
     /// Set of high-value (legalese) tokens in the intersection
-    pub high_set_intersection: HashSet<TokenId>,
+    pub high_set_intersection: TokenSet,
 }
 
 impl PartialOrd for Candidate<'_> {
@@ -150,12 +149,7 @@ fn python_round_tenths(value: f64) -> f32 {
 }
 
 fn quantize_tenths(value: f32) -> i32 {
-    format!("{value:.1}")
-        .chars()
-        .filter(|c| *c != '.')
-        .collect::<String>()
-        .parse()
-        .unwrap_or(0)
+    ((value * 10.0).round()) as i32
 }
 
 fn build_score_vectors(
@@ -290,14 +284,15 @@ pub fn compute_candidates_with_msets<'a>(
         return Vec::new();
     }
 
-    let (query_set, query_mset) = build_set_and_mset(&query_token_ids);
+    let (query_set_hash, query_mset) = build_set_and_mset(&query_token_ids);
+    let query_set: TokenSet = TokenSet::from_u16_iter(query_set_hash.iter().map(|tid| tid.raw()));
 
     // Build the set of high-value tokens in the query
-    let query_high_set: HashSet<TokenId> = query_set
-        .iter()
-        .filter(|tid| tid.as_usize() < index.len_legalese)
-        .copied()
-        .collect();
+    let query_high_set: TokenSet = TokenSet::from_u16_iter(
+        query_set
+            .iter()
+            .filter(|tid| (*tid as usize) < index.len_legalese),
+    );
 
     if query_high_set.is_empty() {
         return Vec::new();
@@ -306,7 +301,7 @@ pub fn compute_candidates_with_msets<'a>(
     // Use inverted index to find candidate rules that share high-value tokens
     let candidate_rids: HashSet<usize> = query_high_set
         .iter()
-        .filter_map(|tid| index.rids_by_high_tid.get(tid))
+        .filter_map(|tid| index.rids_by_high_tid.get(&TokenId::new(tid)))
         .flat_map(|rids| rids.iter().copied())
         .collect();
 
@@ -314,13 +309,8 @@ pub fn compute_candidates_with_msets<'a>(
         return Vec::new();
     }
 
-    let mut step1_candidates: Vec<(
-        ScoresVector,
-        ScoresVector,
-        usize,
-        &'a Rule,
-        HashSet<TokenId>,
-    )> = Vec::new();
+    let mut step1_candidates: Vec<(ScoresVector, ScoresVector, usize, &'a Rule, TokenSet)> =
+        Vec::new();
 
     for rid in candidate_rids {
         let Some(rule) = index.rules_by_rid.get(rid) else {
@@ -335,28 +325,25 @@ pub fn compute_candidates_with_msets<'a>(
 
         // STEP 1: Compute HIGH intersection first (smaller sets, faster)
         // Check size without allocation for early rejection
-        let high_intersection_size = query_high_set.intersection(rule_high_set).count();
+        let high_intersection_size = query_high_set.intersection_count(rule_high_set);
         if high_intersection_size < rule.min_high_matched_length_unique {
             continue;
         }
 
         // Allocate the high intersection (passed threshold check)
-        let high_set_intersection: HashSet<TokenId> = query_high_set
-            .intersection(rule_high_set)
-            .copied()
-            .collect();
+        let high_set_intersection: TokenSet = query_high_set.intersection(rule_high_set);
         if high_set_intersection.is_empty() {
             continue;
         }
 
         // STEP 2: Only now compute FULL intersection (fewer candidates reach here)
-        let intersection: HashSet<TokenId> = query_set.intersection(rule_set).copied().collect();
+        let intersection: TokenSet = query_set.intersection(rule_set);
         if intersection.is_empty() {
             continue;
         }
 
         // Check total intersection threshold
-        let matched_length = tids_set_counter(&intersection);
+        let matched_length = intersection.len();
         if matched_length < rule.min_matched_length_unique {
             continue;
         }
@@ -603,7 +590,7 @@ mod tests {
             },
             rid: 0,
             rule: &rule1,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidate2 = Candidate {
@@ -623,7 +610,7 @@ mod tests {
             },
             rid: 1,
             rule: &rule2,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         assert!(
@@ -698,7 +685,7 @@ mod tests {
             },
             rid: 1,
             rule: &rule1,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidate2 = Candidate {
@@ -718,7 +705,7 @@ mod tests {
             },
             rid: 2,
             rule: &rule2,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidates = vec![candidate1, candidate2];
@@ -797,7 +784,7 @@ mod tests {
             },
             rid: 1,
             rule: &rule1,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidate2 = Candidate {
@@ -817,7 +804,7 @@ mod tests {
             },
             rid: 2,
             rule: &rule2,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidates = vec![candidate1, candidate2];
@@ -927,7 +914,7 @@ mod tests {
             },
             rid: 1,
             rule: &rule_sa,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidate_nc_sa = Candidate {
@@ -947,7 +934,7 @@ mod tests {
             },
             rid: 2,
             rule: &rule_nc_sa,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidates = vec![candidate_nc_sa, candidate_sa];
@@ -976,14 +963,14 @@ mod tests {
                 score_vec_full: filtered[0].score_vec_full.clone(),
                 rid: filtered[0].rid,
                 rule: &mut rule_same1,
-                high_set_intersection: HashSet::new(),
+                high_set_intersection: TokenSet::new(),
             },
             Candidate {
                 score_vec_rounded: filtered[1].score_vec_rounded.clone(),
                 score_vec_full: filtered[1].score_vec_full.clone(),
                 rid: filtered[1].rid,
                 rule: &mut rule_same2,
-                high_set_intersection: HashSet::new(),
+                high_set_intersection: TokenSet::new(),
             },
         ];
 
@@ -1055,7 +1042,7 @@ mod tests {
             },
             rid: 1,
             rule: &rule_z,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let candidate_high_rid = Candidate {
@@ -1069,7 +1056,7 @@ mod tests {
             },
             rid: 2,
             rule: &rule_a,
-            high_set_intersection: HashSet::new(),
+            high_set_intersection: TokenSet::new(),
         };
 
         let mut sorted = [candidate_low_rid, candidate_high_rid];

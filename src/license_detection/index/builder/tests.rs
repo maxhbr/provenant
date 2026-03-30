@@ -905,7 +905,7 @@ SOFTWARE."#;
     #[test]
     fn test_sequence_matching_bsl_file() {
         use crate::license_detection::LicenseDetectionEngine;
-        use crate::license_detection::index::token_sets::{build_set_and_mset, tids_set_counter};
+        use crate::license_detection::index::token_sets::build_set_and_mset;
         use crate::license_detection::query::Query;
         use crate::license_detection::seq_match::HIGH_RESEMBLANCE_THRESHOLD;
         use std::path::Path;
@@ -931,8 +931,7 @@ SOFTWARE."#;
 
         // Build query set and mset
         let (query_set, _query_mset) = build_set_and_mset(&query.tokens);
-        let query_unique_count = tids_set_counter(&query_set);
-        eprintln!("Query unique tokens: {}", query_unique_count);
+        eprintln!("Query unique tokens: {}", query_set.len());
 
         // Find the mit_or_boost rule and compare
         let target_rid = index
@@ -949,19 +948,25 @@ SOFTWARE."#;
                 .sets_by_rid
                 .get(&rid)
                 .expect("Should have indexed set");
-            let rule_unique_count = tids_set_counter(indexed_set);
             eprintln!(
                 "Rule unique tokens (from indexed set): {}",
-                rule_unique_count
+                indexed_set.len()
             );
 
-            // Compute intersection with indexed set
-            let intersection: std::collections::HashSet<_> =
-                query_set.intersection(indexed_set).collect();
-            eprintln!("Intersection unique tokens: {}", intersection.len());
+            // Compute intersection count between query HashSet and indexed TokenSet
+            let intersection_count = query_set
+                .iter()
+                .filter(|&&tid| indexed_set.contains(&tid.raw()))
+                .count();
+            eprintln!("Intersection unique tokens: {}", intersection_count);
 
-            let union_len = query_set.union(indexed_set).count();
-            let resemblance = intersection.len() as f32 / union_len as f32;
+            // Compute union count
+            let indexed_only_count = indexed_set
+                .iter()
+                .filter(|&t| !query_set.contains(&TokenId::new(t)))
+                .count();
+            let union_len = query_set.len() + indexed_only_count;
+            let resemblance = intersection_count as f32 / union_len as f32;
             eprintln!("Set resemblance: {:.3}", resemblance);
             eprintln!(
                 "High resemblance threshold: {:.3}",
@@ -979,11 +984,11 @@ SOFTWARE."#;
             );
             eprintln!(
                 "Indexed set has http: {:?}",
-                http_tid.map(|t| indexed_set.contains(&t))
+                http_tid.map(|t| indexed_set.contains(&t.raw()))
             );
             eprintln!(
                 "Indexed set has https: {:?}",
-                https_tid.map(|t| indexed_set.contains(&t))
+                https_tid.map(|t| indexed_set.contains(&t.raw()))
             );
 
             // Check if rule is approx_matchable
@@ -1009,17 +1014,13 @@ SOFTWARE."#;
             );
 
             // Check if query meets thresholds
-            let high_intersection: std::collections::HashSet<TokenId> = indexed_set
+            let high_intersection_count = indexed_set
                 .iter()
-                .filter(|&&t| index.dictionary.token_kind(t) == TokenKind::Legalese)
-                .copied()
-                .collect();
-            let query_high: std::collections::HashSet<TokenId> = query_set
-                .iter()
-                .filter(|&&t| index.dictionary.token_kind(t) == TokenKind::Legalese)
-                .copied()
-                .collect();
-            let high_intersection_count = high_intersection.intersection(&query_high).count();
+                .filter(|&t| {
+                    index.dictionary.token_kind(TokenId::new(t)) == TokenKind::Legalese
+                        && query_set.contains(&TokenId::new(t))
+                })
+                .count();
             eprintln!(
                 "\nHigh token intersection count: {}",
                 high_intersection_count
