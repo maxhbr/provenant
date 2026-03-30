@@ -12,6 +12,7 @@ pub use builder::{
     loaded_license_to_license, loaded_rule_to_rule,
 };
 
+use crate::license_detection::TokenSet;
 use crate::license_detection::automaton::Automaton;
 use crate::license_detection::index::dictionary::{TokenDictionary, TokenId};
 use std::collections::{HashMap, HashSet};
@@ -97,7 +98,7 @@ pub struct LicenseIndex {
     /// Used for efficient candidate selection based on token overlap.
     ///
     /// Corresponds to Python: `self.sets_by_rid = []` (line 212)
-    pub sets_by_rid: HashMap<usize, HashSet<TokenId>>,
+    pub sets_by_rid: HashMap<usize, TokenSet>,
 
     /// Token ID multisets per rule for candidate ranking.
     ///
@@ -114,7 +115,7 @@ pub struct LicenseIndex {
     /// and early rejection of candidates that won't pass the high-token threshold.
     ///
     /// Precomputed during index building to avoid redundant filtering at runtime.
-    pub high_sets_by_rid: HashMap<usize, HashSet<TokenId>>,
+    pub high_sets_by_rid: HashMap<usize, TokenSet>,
 
     /// Inverted index of high-value token positions per rule.
     ///

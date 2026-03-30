@@ -4,6 +4,7 @@ pub mod aho_match;
 pub mod automaton;
 pub(crate) mod detection;
 pub mod embedded;
+mod token_set;
 
 #[cfg(test)]
 mod embedded_test;
@@ -78,6 +79,7 @@ pub use seq_match::{
     MAX_NEAR_DUPE_CANDIDATES, compute_candidates_with_msets, seq_match_with_candidates,
 };
 pub use spdx_lid::spdx_lid_match;
+pub use token_set::TokenSet;
 pub use unknown_match::unknown_match;
 
 /// License detection engine that orchestrates the detection pipeline.

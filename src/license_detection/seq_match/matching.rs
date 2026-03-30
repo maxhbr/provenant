@@ -223,7 +223,7 @@ pub fn seq_match_with_candidates(
             .get(&rid)
             .map(|hp| {
                 hp.iter()
-                    .filter(|(tid, _)| candidate.high_set_intersection.contains(tid))
+                    .filter(|(tid, _)| candidate.high_set_intersection.contains(&tid.raw()))
                     .map(|(&tid, postings)| (tid, postings.clone()))
                     .collect()
             })
