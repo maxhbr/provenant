@@ -117,8 +117,8 @@ fn truncate_detection_text(clean_text: &str) -> &str {
     &clean_text[..boundary]
 }
 
-fn query_span_for_match(m: &LicenseMatch) -> Option<query::PositionSpan> {
-    (m.end_token > m.start_token).then(|| query::PositionSpan::new(m.start_token, m.end_token))
+fn query_span_for_match(m: &LicenseMatch) -> Option<models::PositionSpan> {
+    (m.end_token > m.start_token).then(|| models::PositionSpan::new(m.start_token, m.end_token))
 }
 
 fn has_full_match_coverage(m: &LicenseMatch) -> bool {
@@ -333,7 +333,7 @@ fn filter_redundant_low_coverage_composite_seq_wrappers(
 
 fn subtract_spdx_match_qspans(
     query: &mut Query<'_>,
-    matched_qspans: &mut Vec<query::PositionSpan>,
+    matched_qspans: &mut Vec<models::PositionSpan>,
     aho_extra_matchables: &mut BitSet,
     spdx_matches: &[LicenseMatch],
 ) {
@@ -356,7 +356,7 @@ fn subtract_spdx_match_qspans(
 fn merge_and_prepare_aho_matches(
     index: &index::LicenseIndex,
     query: &mut Query<'_>,
-    matched_qspans: &mut Vec<query::PositionSpan>,
+    matched_qspans: &mut Vec<models::PositionSpan>,
     refined_aho: &[LicenseMatch],
 ) -> (Vec<LicenseMatch>, bool) {
     let merged_aho = merge_overlapping_matches(refined_aho);
@@ -389,7 +389,7 @@ fn merge_and_prepare_aho_matches(
 fn collect_whole_query_exact_followup_matches(
     index: &index::LicenseIndex,
     query: &mut Query<'_>,
-    matched_qspans: &mut Vec<query::PositionSpan>,
+    matched_qspans: &mut Vec<models::PositionSpan>,
     whole_run: &query::QueryRun<'_>,
 ) -> Vec<LicenseMatch> {
     let mut seq_all_matches = Vec::new();
@@ -404,7 +404,7 @@ fn collect_whole_query_exact_followup_matches(
 
             for m in &near_dupe_matches {
                 if m.end_token > m.start_token {
-                    let span = query::PositionSpan::new(m.start_token, m.end_token);
+                    let span = models::PositionSpan::new(m.start_token, m.end_token);
                     query.subtract(&span);
                     matched_qspans.push(span);
                 }
@@ -420,7 +420,7 @@ fn collect_whole_query_exact_followup_matches(
 fn collect_regular_seq_matches(
     index: &index::LicenseIndex,
     query: &Query<'_>,
-    matched_qspans: &[query::PositionSpan],
+    matched_qspans: &[models::PositionSpan],
     candidate_contained_matches: &[LicenseMatch],
 ) -> Vec<LicenseMatch> {
     let mut seq_all_matches = Vec::new();
@@ -530,7 +530,7 @@ impl LicenseDetectionEngine {
         let mut all_matches = Vec::new();
         let mut candidate_contained_matches = Vec::new();
         let mut aho_extra_matchables = BitSet::new();
-        let mut matched_qspans: Vec<query::PositionSpan> = Vec::new();
+        let mut matched_qspans: Vec<models::PositionSpan> = Vec::new();
 
         // Phase 1a: Hash matching
         // Python returns immediately if hash matches found (index.py:987-991)
@@ -707,7 +707,7 @@ impl LicenseDetectionEngine {
         let mut all_matches = Vec::new();
         let mut candidate_contained_matches = Vec::new();
         let mut aho_extra_matchables = BitSet::new();
-        let mut matched_qspans: Vec<query::PositionSpan> = Vec::new();
+        let mut matched_qspans: Vec<models::PositionSpan> = Vec::new();
 
         // Phase 1a: Hash matching
         {

@@ -2,6 +2,7 @@
 
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::{KnownToken, QueryToken, TokenId, TokenKind};
+use crate::license_detection::models::PositionSpan;
 use crate::license_detection::spdx_lid::split_spdx_lid;
 use crate::license_detection::tokenize::STOPWORDS;
 use crate::license_detection::tokenize::tokenize_as_ids;
@@ -25,35 +26,6 @@ struct MatchedTextToken {
     pos: Option<usize>,
     is_text: bool,
     is_matched: bool,
-}
-
-/// A span representing a range of token positions.
-///
-/// Used for tracking matched token positions and performing position arithmetic.
-/// This is a single continuous range of token positions [start, end) (exclusive end).
-///
-/// Distinct from `spans::Span` which tracks multiple byte ranges for coverage.
-///
-/// Based on Python Span class at:
-/// reference/scancode-toolkit/src/licensedcode/spans.py
-#[derive(Debug, Clone)]
-pub struct PositionSpan {
-    start: usize,
-    end: usize,
-}
-
-impl PositionSpan {
-    pub fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-
-    pub fn contains(&self, pos: usize) -> bool {
-        self.start <= pos && pos < self.end
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.start..self.end
-    }
 }
 
 ///

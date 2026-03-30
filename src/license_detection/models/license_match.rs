@@ -6,34 +6,12 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
+use crate::license_detection::models::position_span::SpanIter;
 use crate::license_detection::models::RuleKind;
 use crate::license_detection::position_set::PositionSet;
 
 fn default_rule_length() -> usize {
     0
-}
-
-pub enum SpanIter<'a> {
-    Slice(std::iter::Copied<std::slice::Iter<'a, usize>>),
-    Range(std::ops::Range<usize>),
-}
-
-impl<'a> Iterator for SpanIter<'a> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            SpanIter::Slice(iter) => iter.next(),
-            SpanIter::Range(range) => range.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            SpanIter::Slice(iter) => iter.size_hint(),
-            SpanIter::Range(range) => range.size_hint(),
-        }
-    }
 }
 
 /// Internal matcher kind used to create a license match.
