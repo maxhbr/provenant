@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::license_detection::index::LicenseIndex;
     use crate::license_detection::index::dictionary::tid;
+    use crate::license_detection::index::LicenseIndex;
     use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::models::{License, LicenseMatch, MatcherKind, Rule, RuleKind};
+    use crate::license_detection::position_set::PositionSet;
     use crate::models::Match as OutputMatch;
     use std::collections::HashMap;
 
@@ -755,8 +756,8 @@ mod tests {
             unknowns_by_pos: HashMap::new(),
             stopwords_by_pos: HashMap::new(),
             shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -778,8 +779,8 @@ mod tests {
             unknowns_by_pos: HashMap::new(),
             stopwords_by_pos: HashMap::new(),
             shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -804,8 +805,8 @@ mod tests {
             unknowns_by_pos: HashMap::new(),
             stopwords_by_pos: HashMap::new(),
             shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -832,8 +833,8 @@ mod tests {
             unknowns_by_pos,
             stopwords_by_pos: HashMap::new(),
             shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -859,8 +860,8 @@ mod tests {
             unknowns_by_pos,
             stopwords_by_pos: HashMap::new(),
             shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -885,8 +886,8 @@ mod tests {
             unknowns_by_pos,
             stopwords_by_pos: HashMap::new(),
             shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],

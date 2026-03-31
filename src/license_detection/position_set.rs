@@ -5,7 +5,7 @@ use crate::license_detection::models::position_span::PositionSpan;
 /// A set of usize positions stored as a BitSet.
 /// Provides O(1) membership testing and efficient set operations.
 /// Caches bounds for cheap overlap pre-checks.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PositionSet {
     bitset: BitSet,
     min_pos: usize,
@@ -48,7 +48,7 @@ impl PositionSet {
 
     /// Is the set empty?
     pub fn is_empty(&self) -> bool {
-        self.min_pos == usize::MAX
+        self.bitset.is_empty()
     }
 
     /// Insert a position.
@@ -80,6 +80,11 @@ impl PositionSet {
     /// Check if position is in the set.
     pub fn contains(&self, pos: usize) -> bool {
         self.bitset.contains(pos)
+    }
+
+    /// Remove a position from the set.
+    pub fn remove(&mut self, pos: usize) -> bool {
+        self.bitset.remove(pos)
     }
 
     /// Quick check if a range [range_start, range_end) might overlap with this set.
@@ -154,6 +159,15 @@ impl Default for PositionSet {
 impl std::iter::FromIterator<usize> for PositionSet {
     fn from_iter<T: IntoIterator<Item = usize>>(iter: T) -> Self {
         Self::from_usize_iter(iter)
+    }
+}
+
+impl IntoIterator for PositionSet {
+    type Item = usize;
+    type IntoIter = std::vec::IntoIter<usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bitset.iter().collect::<Vec<_>>().into_iter()
     }
 }
 

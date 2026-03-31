@@ -3,10 +3,10 @@
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::{KnownToken, QueryToken, TokenId, TokenKind};
 use crate::license_detection::models::PositionSpan;
+use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::spdx_lid::split_spdx_lid;
 use crate::license_detection::tokenize::STOPWORDS;
 use crate::license_detection::tokenize::tokenize_as_ids;
-use bit_set::BitSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::cell::{OnceCell, RefCell};
@@ -88,14 +88,14 @@ pub struct Query<'a> {
     /// These are tokens with ID < len_legalese.
     ///
     /// Corresponds to Python: `self.high_matchables` (line 293)
-    pub high_matchables: BitSet,
+    pub high_matchables: PositionSet,
 
     /// Low-value matchable token positions (non-legalese tokens)
     ///
     /// These are tokens with ID >= len_legalese.
     ///
     /// Corresponds to Python: `self.low_matchables` (line 294)
-    pub low_matchables: BitSet,
+    pub low_matchables: PositionSet,
 
     /// True if the query is detected as binary content
     ///
@@ -554,14 +554,14 @@ impl<'a> Query<'a> {
             current_line += 1;
         }
 
-        let high_matchables: BitSet = tokens
+        let high_matchables: PositionSet = tokens
             .iter()
             .enumerate()
             .filter(|(_pos, tid)| index.dictionary.token_kind(**tid) == TokenKind::Legalese)
             .map(|(pos, _tid)| pos)
             .collect();
 
-        let low_matchables: BitSet = tokens
+        let low_matchables: PositionSet = tokens
             .iter()
             .enumerate()
             .filter(|(_pos, tid)| index.dictionary.token_kind(**tid) == TokenKind::Regular)
@@ -792,8 +792,8 @@ struct WholeQueryRunSnapshot<'a> {
     index: &'a LicenseIndex,
     tokens: Vec<TokenId>,
     line_by_pos: Vec<usize>,
-    high_matchables: BitSet,
-    low_matchables: BitSet,
+    high_matchables: PositionSet,
+    low_matchables: PositionSet,
 }
 
 /// A query run is a slice of query tokens identified by a start and end positions.
@@ -809,9 +809,9 @@ pub struct QueryRun<'a> {
     whole_query_snapshot: Option<WholeQueryRunSnapshot<'a>>,
     pub start: usize,
     pub end: Option<usize>,
-    cached_high_matchables: OnceCell<BitSet>,
-    cached_low_matchables: OnceCell<BitSet>,
-    combined_matchables: RefCell<Option<BitSet>>,
+    cached_high_matchables: OnceCell<PositionSet>,
+    cached_low_matchables: OnceCell<PositionSet>,
+    combined_matchables: RefCell<Option<PositionSet>>,
 }
 
 impl<'a> QueryRun<'a> {
@@ -883,7 +883,7 @@ impl<'a> QueryRun<'a> {
         }
     }
 
-    fn source_high_matchables(&self) -> &BitSet {
+    fn source_high_matchables(&self) -> &PositionSet {
         if let Some(query) = self.query {
             &query.high_matchables
         } else {
@@ -895,7 +895,7 @@ impl<'a> QueryRun<'a> {
         }
     }
 
-    fn source_low_matchables(&self) -> &BitSet {
+    fn source_low_matchables(&self) -> &PositionSet {
         if let Some(query) = self.query {
             &query.low_matchables
         } else {
@@ -992,14 +992,15 @@ impl<'a> QueryRun<'a> {
         !matchable_set.is_empty()
     }
 
-    pub fn matchables(&self, include_low: bool) -> BitSet {
+    pub fn matchables(&self, include_low: bool) -> PositionSet {
         if include_low {
             if let Some(ref cached) = *self.combined_matchables.borrow() {
                 return cached.clone();
             }
-            let combined: BitSet = self
+            let combined: PositionSet = self
                 .low_matchables()
-                .union(&self.high_matchables())
+                .iter()
+                .chain(self.high_matchables().iter())
                 .collect();
             *self.combined_matchables.borrow_mut() = Some(combined.clone());
             combined
@@ -1026,7 +1027,7 @@ impl<'a> QueryRun<'a> {
             .collect()
     }
 
-    pub fn high_matchables(&self) -> BitSet {
+    pub fn high_matchables(&self) -> PositionSet {
         self.cached_high_matchables
             .get_or_init(|| {
                 let start = self.start;
@@ -1041,7 +1042,7 @@ impl<'a> QueryRun<'a> {
             .clone()
     }
 
-    pub fn low_matchables(&self) -> BitSet {
+    pub fn low_matchables(&self) -> PositionSet {
         self.cached_low_matchables
             .get_or_init(|| {
                 let start = self.start;

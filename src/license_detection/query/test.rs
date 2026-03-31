@@ -4,8 +4,8 @@
 mod tests {
     use std::collections::HashSet;
 
+    use crate::license_detection::index::dictionary::{tid, TokenId};
     use crate::license_detection::index::LicenseIndex;
-    use crate::license_detection::index::dictionary::{TokenId, tid};
     use crate::license_detection::models::PositionSpan;
     use crate::license_detection::query::{Query, QueryRun};
     use crate::license_detection::test_utils::create_test_index;
@@ -54,7 +54,11 @@ mod tests {
     }
 
     fn query_matchables(query: &Query<'_>) -> HashSet<usize> {
-        query.low_matchables.union(&query.high_matchables).collect()
+        query
+            .low_matchables
+            .iter()
+            .chain(query.high_matchables.iter())
+            .collect()
     }
 
     fn query_matched(query: &Query<'_>) -> HashSet<usize> {
@@ -310,7 +314,7 @@ mod tests {
         let run = QueryRun::new(&query, 0, Some(2));
 
         let high = run.high_matchables();
-        assert_eq!(high.count(), 3);
+        assert_eq!(high.len(), 3);
         assert!(query.high_matchables.contains(0));
         assert!(query.high_matchables.contains(1));
         assert!(query.high_matchables.contains(2));
@@ -334,10 +338,10 @@ mod tests {
         let run = QueryRun::new(&query, 0, Some(2));
 
         let matchables = run.matchables(true);
-        assert_eq!(matchables.count(), 3);
+        assert_eq!(matchables.len(), 3);
 
         let high_matchables = run.matchables(false);
-        assert_eq!(high_matchables.count(), 3);
+        assert_eq!(high_matchables.len(), 3);
     }
 
     #[test]
@@ -621,7 +625,7 @@ mod tests {
         let run = QueryRun::new(&query, 1, Some(2));
 
         let high = run.high_matchables();
-        assert_eq!(high.count(), 2);
+        assert_eq!(high.len(), 2);
         assert!(high.contains(1));
         assert!(high.contains(2));
         assert!(!high.contains(0));
@@ -895,7 +899,7 @@ mod tests {
 
         let whole_run = query.whole_query_run();
         let before_subtraction = whole_run.high_matchables();
-        assert_eq!(before_subtraction.count(), 3);
+        assert_eq!(before_subtraction.len(), 3);
         assert!(before_subtraction.contains(0));
         assert!(before_subtraction.contains(1));
         assert!(before_subtraction.contains(2));
@@ -907,7 +911,7 @@ mod tests {
 
         let live_run = query.query_runs().into_iter().next().unwrap();
         let live_matchables = live_run.high_matchables();
-        assert_eq!(live_matchables.count(), 1);
+        assert_eq!(live_matchables.len(), 1);
         assert!(live_matchables.contains(2));
         assert!(!live_matchables.contains(0));
         assert!(!live_matchables.contains(1));
