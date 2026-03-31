@@ -7,12 +7,11 @@
 //! Based on the Python ScanCode Toolkit implementation at:
 //! reference/scancode-toolkit/src/licensedcode/match_aho.py
 
-use bit_set::BitSet;
-
 use crate::license_detection::index::dictionary::{TokenId, TokenKind};
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
+use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::query::QueryRun;
 
 pub const MATCH_AHO: MatcherKind = MatcherKind::Aho;
@@ -71,7 +70,7 @@ pub fn aho_match(index: &LicenseIndex, query_run: &QueryRun) -> Vec<LicenseMatch
 pub fn aho_match_with_extra_matchables(
     index: &LicenseIndex,
     query_run: &QueryRun,
-    extra_matchable_positions: Option<&BitSet>,
+    extra_matchable_positions: Option<&PositionSet>,
 ) -> Vec<LicenseMatch> {
     let mut matches = Vec::new();
 
@@ -245,6 +244,7 @@ mod tests {
     use crate::license_detection::test_utils::{
         create_mock_query_with_tokens, create_mock_rule, create_test_index_default,
     };
+    use bit_set::BitSet;
 
     fn tids(values: &[u16]) -> Vec<TokenId> {
         values.iter().copied().map(TokenId::new).collect()
@@ -514,7 +514,7 @@ mod tests {
 
         assert!(aho_match(run.get_index(), &run).is_empty());
 
-        let extra_matchables: BitSet = [1usize].into_iter().collect();
+        let extra_matchables: PositionSet = [1usize].into_iter().collect();
         let matches =
             aho_match_with_extra_matchables(run.get_index(), &run, Some(&extra_matchables));
 
@@ -568,7 +568,7 @@ mod tests {
         };
 
         let run = query.whole_query_run();
-        let extra_matchables: BitSet = [0usize, 1].into_iter().collect();
+        let extra_matchables: PositionSet = [0usize, 1].into_iter().collect();
         let matches =
             aho_match_with_extra_matchables(run.get_index(), &run, Some(&extra_matchables));
 

@@ -159,9 +159,7 @@ fn is_redundant_same_expression_seq_container(
 
     let mut child_union = PositionSet::new();
     for m in &contained {
-        for pos in m.qspan.iter() {
-            child_union.insert(pos);
-        }
+        child_union.extend_from_span(&m.qspan);
     }
 
     let container_only_positions = container_qspan_set.difference(&child_union);
@@ -275,9 +273,7 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
 
     let mut child_union = PositionSet::new();
     for m in &children {
-        for pos in m.qspan.iter() {
-            child_union.insert(pos);
-        }
+        child_union.extend_from_span(&m.qspan);
     }
 
     let container_only_positions = container_qspan_set.difference(&child_union);
@@ -320,7 +316,7 @@ fn filter_redundant_low_coverage_composite_seq_wrappers(
 fn subtract_spdx_match_qspans(
     query: &mut Query<'_>,
     matched_qspans: &mut Vec<models::PositionSpan>,
-    aho_extra_matchables: &mut BitSet,
+    aho_extra_matchables: &mut PositionSet,
     spdx_matches: &[LicenseMatch],
 ) {
     for m in spdx_matches {
@@ -328,9 +324,7 @@ fn subtract_spdx_match_qspans(
             continue;
         };
 
-        for pos in span.iter() {
-            aho_extra_matchables.insert(pos);
-        }
+        aho_extra_matchables.extend_from_span(&span);
         query.subtract(&span);
 
         if has_full_match_coverage(m) {
@@ -515,7 +509,7 @@ impl LicenseDetectionEngine {
 
         let mut all_matches = Vec::new();
         let mut candidate_contained_matches = Vec::new();
-        let mut aho_extra_matchables = BitSet::new();
+        let mut aho_extra_matchables = PositionSet::new();
         let mut matched_qspans: Vec<models::PositionSpan> = Vec::new();
 
         // Phase 1a: Hash matching
@@ -692,7 +686,7 @@ impl LicenseDetectionEngine {
 
         let mut all_matches = Vec::new();
         let mut candidate_contained_matches = Vec::new();
-        let mut aho_extra_matchables = BitSet::new();
+        let mut aho_extra_matchables = PositionSet::new();
         let mut matched_qspans: Vec<models::PositionSpan> = Vec::new();
 
         // Phase 1a: Hash matching

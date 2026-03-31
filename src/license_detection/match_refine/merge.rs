@@ -3,8 +3,8 @@
 //! This module contains functions for merging overlapping and adjacent matches,
 //! updating match scores, and filtering license references.
 
-use crate::license_detection::models::LicenseMatch;
 use crate::license_detection::models::position_span::PositionSpan;
+use crate::license_detection::models::LicenseMatch;
 use crate::license_detection::query::Query;
 
 const MAX_DIST: usize = 50;
@@ -19,23 +19,17 @@ fn combine_matches(a: &LicenseMatch, b: &LicenseMatch) -> LicenseMatch {
     let mut merged = a.clone();
 
     let mut qspan_set = a.qspan.to_position_set();
-    for pos in b.qspan.iter() {
-        qspan_set.insert(pos);
-    }
+    qspan_set.extend_from_span(&b.qspan);
     let mut qspan_vec: Vec<usize> = qspan_set.iter().collect();
     qspan_vec.sort_unstable();
 
     let mut ispan_set = a.ispan.to_position_set();
-    for pos in b.ispan.iter() {
-        ispan_set.insert(pos);
-    }
+    ispan_set.extend_from_span(&b.ispan);
     let mut ispan_vec: Vec<usize> = ispan_set.iter().collect();
     ispan_vec.sort_unstable();
 
     let mut hispan_set = a.hispan.to_position_set();
-    for pos in b.hispan.iter() {
-        hispan_set.insert(pos);
-    }
+    hispan_set.extend_from_span(&b.hispan);
     let mut hispan_vec: Vec<usize> = hispan_set.iter().collect();
     hispan_vec.sort_unstable();
     let hilen = hispan_vec.len();

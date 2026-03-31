@@ -126,6 +126,19 @@ impl PositionSet {
         span.iter().any(|p| self.contains(p))
     }
 
+    /// Check if this set contains all positions in a range.
+    /// Returns true for empty ranges.
+    pub fn contains_range(&self, range: std::ops::Range<usize>) -> bool {
+        if range.is_empty() {
+            return true;
+        }
+        let (start, end) = (range.start, range.end);
+        if !self.may_overlap_range(start, end) {
+            return false;
+        }
+        (start..end).all(|pos| self.contains(pos))
+    }
+
     /// Iterate over positions.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         self.bitset.iter()
@@ -287,5 +300,35 @@ mod tests {
     fn test_overlaps_span_empty() {
         let set = PositionSet::from_usize_iter(vec![1, 2, 3]);
         assert!(!set.overlaps_span(&PositionSpan::empty()));
+    }
+
+    #[test]
+    fn test_contains_range_yes() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3, 4, 5]);
+        assert!(set.contains_range(1..6));
+        assert!(set.contains_range(2..4));
+        assert!(set.contains_range(1..6));
+    }
+
+    #[test]
+    fn test_contains_range_no() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3]);
+        assert!(!set.contains_range(0..4));
+        assert!(!set.contains_range(3..5));
+        assert!(!set.contains_range(5..10));
+    }
+
+    #[test]
+    fn test_contains_range_empty() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3]);
+        assert!(set.contains_range(5..5));
+        assert!(set.contains_range(0..0));
+    }
+
+    #[test]
+    fn test_contains_range_disjoint() {
+        let set = PositionSet::from_usize_iter(vec![10, 11, 12]);
+        assert!(!set.contains_range(0..5));
+        assert!(!set.contains_range(15..20));
     }
 }

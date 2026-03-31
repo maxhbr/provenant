@@ -237,7 +237,7 @@ pub(crate) fn filter_matches_missing_required_phrases(
 
         let all_contained = ikey_spans
             .iter()
-            .all(|span| (span.start..span.end).all(|pos| ispan_set.contains(pos)));
+            .all(|span| ispan_set.contains_range(span.clone()));
 
         if !all_contained {
             discarded.push(m.clone());
