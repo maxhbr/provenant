@@ -1,7 +1,7 @@
 //! Match grouping functions.
 
-use super::types::DetectionGroup;
 use super::LINES_THRESHOLD;
+use super::types::DetectionGroup;
 use crate::license_detection::models::LicenseMatch;
 
 pub fn group_matches_by_region(matches: &[LicenseMatch]) -> Vec<DetectionGroup> {

@@ -1,22 +1,15 @@
 //! License match result from a matching strategy.
 
-use serde::de::Error as _;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::RuleKind;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::position_set::PositionSet;
 
-fn default_rule_length() -> usize {
-    0
-}
-
 /// Internal matcher kind used to create a license match.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize)]
 pub enum MatcherKind {
     #[serde(rename = "1-hash")]
     #[default]
@@ -210,66 +203,6 @@ struct SerializableLicenseMatch<'a> {
     candidate_containment: f32,
 }
 
-/// Deserializable form of LicenseMatch for JSON parsing.
-///
-/// Note: `is_license_notice` is included for deserialization completeness but
-/// is not passed to `from_match_flags` because match objects cannot have this
-/// flag (only rule objects can). This is correct behavior matching Python.
-#[derive(Deserialize)]
-struct DeserializableLicenseMatch {
-    #[serde(default)]
-    license_expression: String,
-    #[serde(default)]
-    license_expression_spdx: Option<String>,
-    #[serde(default)]
-    from_file: Option<String>,
-    start_line: usize,
-    end_line: usize,
-    #[serde(default)]
-    start_token: usize,
-    #[serde(default)]
-    end_token: usize,
-    matcher: MatcherKind,
-    score: f32,
-    matched_length: usize,
-    #[serde(default = "default_rule_length")]
-    rule_length: usize,
-    match_coverage: f32,
-    rule_relevance: u8,
-    #[serde(default)]
-    rule_identifier: String,
-    #[serde(default)]
-    rule_url: String,
-    #[serde(default)]
-    matched_text: Option<String>,
-    #[serde(default)]
-    referenced_filenames: Option<Vec<String>>,
-    #[serde(default)]
-    is_license_text: bool,
-    #[serde(default)]
-    #[allow(dead_code)] // see comment above
-    is_license_notice: bool,
-    #[serde(default)]
-    is_license_intro: bool,
-    #[serde(default)]
-    is_license_clue: bool,
-    #[serde(default)]
-    is_license_reference: bool,
-    #[serde(default)]
-    is_license_tag: bool,
-    #[serde(default)]
-    is_from_license: bool,
-    #[serde(default)]
-    #[allow(dead_code)]
-    hilen: usize,
-    #[serde(default)]
-    rule_start_token: usize,
-    #[serde(default)]
-    candidate_resemblance: f32,
-    #[serde(default)]
-    candidate_containment: f32,
-}
-
 impl Serialize for LicenseMatch {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -306,56 +239,6 @@ impl Serialize for LicenseMatch {
             candidate_containment: self.candidate_containment,
         }
         .serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for LicenseMatch {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = DeserializableLicenseMatch::deserialize(deserializer)?;
-        let rule_kind = RuleKind::from_match_flags(
-            value.is_license_text,
-            value.is_license_reference,
-            value.is_license_tag,
-            value.is_license_intro,
-            value.is_license_clue,
-        )
-        .map_err(D::Error::custom)?;
-
-        Ok(Self {
-            rid: 0,
-            license_expression: value.license_expression,
-            license_expression_spdx: value.license_expression_spdx,
-            from_file: value.from_file,
-            start_line: value.start_line,
-            end_line: value.end_line,
-            start_token: value.start_token,
-            end_token: value.end_token,
-            matcher: value.matcher,
-            score: value.score,
-            matched_length: value.matched_length,
-            rule_length: value.rule_length,
-            match_coverage: value.match_coverage,
-            rule_relevance: value.rule_relevance,
-            rule_identifier: value.rule_identifier,
-            rule_url: value.rule_url,
-            matched_text: value.matched_text,
-            referenced_filenames: value.referenced_filenames,
-            rule_kind,
-            is_from_license: value.is_from_license,
-            rule_start_token: value.rule_start_token,
-            qspan: PositionSpan::empty(),
-            ispan: PositionSpan::empty(),
-            hispan: if value.hilen > 0 {
-                PositionSpan::range(0, value.hilen)
-            } else {
-                PositionSpan::empty()
-            },
-            candidate_resemblance: value.candidate_resemblance,
-            candidate_containment: value.candidate_containment,
-        })
     }
 }
 

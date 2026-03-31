@@ -715,8 +715,8 @@ mod tests {
         let mut m = create_test_match("#1", 1, 10, 1.0, 100.0, 100);
         m.matcher = crate::license_detection::models::MatcherKind::Seq;
         m.matched_length = 50;
-        m.qspan = PositionSpan::from_positions((0..50).collect());
-        m.ispan = PositionSpan::from_positions((0..50).collect());
+        m.qspan = PositionSpan::range(0, 50);
+        m.ispan = PositionSpan::range(0, 50);
 
         let matches = vec![m];
         let filtered = filter_spurious_matches(&matches, &query);
@@ -764,9 +764,9 @@ mod tests {
         m.matched_length = 25;
         m.start_token = 0;
         m.end_token = 30;
-        m.qspan = PositionSpan::from_positions((0..25).collect());
-        m.ispan = PositionSpan::from_positions((0..25).collect());
-        m.hispan = PositionSpan::from_positions((0..10).collect());
+        m.qspan = PositionSpan::range(0, 25);
+        m.ispan = PositionSpan::range(0, 25);
+        m.hispan = PositionSpan::range(0, 10);
 
         let matches = vec![m];
         let filtered = filter_spurious_matches(&matches, &query);
@@ -859,7 +859,7 @@ mod tests {
         let mut m = create_test_match("#0", 1, 10, 0.9, 50.0, 100);
         m.matcher = crate::license_detection::models::MatcherKind::Seq;
         m.matched_length = 5;
-        m.hispan = PositionSpan::from_positions((0..2).collect());
+        m.hispan = PositionSpan::range(0, 2);
 
         let matches = vec![m];
         let filtered = filter_too_short_matches(&index, &matches);
@@ -912,7 +912,7 @@ mod tests {
         let mut m = create_test_match("#0", 1, 10, 0.9, 90.0, 100);
         m.matcher = crate::license_detection::models::MatcherKind::Seq;
         m.matched_length = 15;
-        m.hispan = PositionSpan::from_positions((0..8).collect());
+        m.hispan = PositionSpan::range(0, 8);
 
         let matches = vec![m];
         let filtered = filter_too_short_matches(&index, &matches);

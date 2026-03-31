@@ -206,7 +206,8 @@ mod tests {
             rule_url: String::new(),
             matched_text: None,
             referenced_filenames: None,
-            rule_kind: crate::license_detection::models::RuleKind::from_match_flags(
+            rule_kind: crate::license_detection::models::RuleKind::from_rule_flags(
+                false,
                 false,
                 is_license_reference,
                 is_license_tag,
@@ -216,7 +217,7 @@ mod tests {
             .unwrap(),
             is_from_license: false,
             rule_start_token: 0,
-            qspan: PositionSpan::from_positions((0..matched_length).collect()),
+            qspan: PositionSpan::range(0, matched_length),
             ispan: PositionSpan::empty(),
             hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,

@@ -5,8 +5,8 @@
 
 use crate::license_detection::expression::licensing_contains;
 use crate::license_detection::index::LicenseIndex;
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::LicenseMatch;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::position_set::PositionSet;
 
 use super::merge::merge_overlapping_matches;
@@ -1122,17 +1122,17 @@ mod tests {
         m1.start_token = 5;
         m1.end_token = 77;
         m1.matched_length = 48;
-        m1.hispan = PositionSpan::from_positions((0..14).collect());
+        m1.hispan = PositionSpan::range(0, 14);
         m1.matcher = crate::license_detection::models::MatcherKind::Seq;
-        m1.qspan = PositionSpan::from_positions((5..77).collect());
+        m1.qspan = PositionSpan::range(5, 77);
 
         let mut m2 = create_test_match("gfdl-1.1-plus_5.RULE", 1, 10, 68.6, 68.6, 100);
         m2.start_token = 5;
         m2.end_token = 77;
         m2.matched_length = 48;
-        m2.hispan = PositionSpan::from_positions((0..14).collect());
+        m2.hispan = PositionSpan::range(0, 14);
         m2.matcher = crate::license_detection::models::MatcherKind::Seq;
-        m2.qspan = PositionSpan::from_positions((5..77).collect());
+        m2.qspan = PositionSpan::range(5, 77);
 
         let matches = vec![m1, m2];
         let (kept, _discarded) = filter_overlapping_matches(matches, &index);

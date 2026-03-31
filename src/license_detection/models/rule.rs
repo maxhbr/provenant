@@ -103,24 +103,6 @@ impl RuleKind {
         Ok(active.unwrap_or(Self::None))
     }
 
-    pub fn from_match_flags(
-        is_license_text: bool,
-        is_license_reference: bool,
-        is_license_tag: bool,
-        is_license_intro: bool,
-        is_license_clue: bool,
-    ) -> Result<Self, &'static str> {
-        Self::from_rule_flags(
-            is_license_text,
-            false,
-            is_license_reference,
-            is_license_tag,
-            is_license_intro,
-            is_license_clue,
-        )
-        .map_err(|_| "license match has multiple rule kinds set")
-    }
-
     pub const fn is_license_text(self) -> bool {
         matches!(self, Self::Text)
     }

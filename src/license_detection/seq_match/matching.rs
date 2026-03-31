@@ -283,15 +283,9 @@ pub fn seq_match_with_candidates(
                         continue;
                     }
 
-                    let qspan = PositionSpan::range(qpos + query_run.start, qpos + mlen + query_run.start);
+                    let qspan =
+                        PositionSpan::range(qpos + query_run.start, qpos + mlen + query_run.start);
                     let ispan = PositionSpan::range(ipos, ipos + mlen);
-                    let hispan_positions: Vec<usize> = (ipos..ipos + mlen)
-                        .filter(|&p| {
-                            rule_tokens
-                                .get(p)
-                                .is_some_and(|t| t.as_usize() < len_legalese)
-                        })
-                        .collect();
 
                     let qend = qpos + mlen - 1;
                     let abs_qpos = qpos + query_run.start;
@@ -331,7 +325,11 @@ pub fn seq_match_with_candidates(
                         rule_start_token: ipos,
                         qspan,
                         ispan,
-                        hispan: PositionSpan::from_positions(hispan_positions),
+                        hispan: PositionSpan::from_positions((ipos..ipos + mlen).filter(|&p| {
+                            rule_tokens
+                                .get(p)
+                                .is_some_and(|t| t.as_usize() < len_legalese)
+                        })),
                         candidate_resemblance: candidate.score_vec_full.resemblance,
                         candidate_containment: candidate.score_vec_full.containment,
                     };

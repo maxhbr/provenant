@@ -17,8 +17,8 @@ use crate::copyright::{
     self, AuthorDetection, CopyrightDetection, CopyrightDetectionOptions, HolderDetection,
 };
 use crate::finder::{self, DetectionConfig};
-use crate::license_detection::models::LicenseMatch as InternalLicenseMatch;
 use crate::license_detection::PositionSet;
+use crate::license_detection::models::LicenseMatch as InternalLicenseMatch;
 use crate::license_detection::query::Query;
 use crate::models::{
     Author, Copyright, DatasourceId, FileInfo, FileInfoBuilder, FileType, Holder, LicenseDetection,
@@ -1306,7 +1306,7 @@ mod tests {
                 .iter()
                 .enumerate()
                 .filter_map(|(idx, _)| (idx != 9).then_some(idx))
-                .collect(),
+                .collect::<Vec<_>>(),
         );
         detection.identifier = Some("fsf_ap-test".to_string());
 

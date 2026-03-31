@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use crate::license_detection::index::dictionary::{TokenDictionary, TokenId};
 use crate::license_detection::index::LicenseIndex;
+use crate::license_detection::index::dictionary::{TokenDictionary, TokenId};
 use crate::license_detection::models::Rule;
 use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::query::Query;

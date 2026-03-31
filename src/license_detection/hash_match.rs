@@ -5,8 +5,8 @@
 
 use sha1::{Digest, Sha1};
 
-use crate::license_detection::index::dictionary::{TokenId, TokenKind};
 use crate::license_detection::index::LicenseIndex;
+use crate::license_detection::index::dictionary::{TokenId, TokenKind};
 use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
 use crate::license_detection::query::QueryRun;
@@ -62,9 +62,6 @@ pub fn hash_match(index: &LicenseIndex, query_run: &QueryRun) -> Vec<LicenseMatc
         let end = query_run.end.unwrap_or(query_run.start);
         let qspan = PositionSpan::range(query_run.start, end + 1);
         let ispan = PositionSpan::range(0, rule_length);
-        let hispan_positions: Vec<usize> = (0..rule_length)
-            .filter(|&p| index.dictionary.token_kind(itokens[p]) == TokenKind::Legalese)
-            .collect();
 
         let matched_length = query_run.tokens().len();
         let match_coverage = 100.0;
@@ -103,7 +100,10 @@ pub fn hash_match(index: &LicenseIndex, query_run: &QueryRun) -> Vec<LicenseMatc
             rule_start_token: 0,
             qspan,
             ispan,
-            hispan: PositionSpan::from_positions(hispan_positions),
+            hispan: PositionSpan::from_positions(
+                (0..rule_length)
+                    .filter(|&p| index.dictionary.token_kind(itokens[p]) == TokenKind::Legalese),
+            ),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         };

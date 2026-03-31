@@ -72,10 +72,14 @@ impl PositionSpan {
         Self::range(start, end)
     }
 
-    pub fn from_positions(positions: Vec<usize>) -> Self {
-        if positions.is_empty() {
+    pub fn from_positions(positions: impl IntoIterator<Item = usize>) -> Self {
+        let mut iter = positions.into_iter();
+        let Some(first) = iter.next() else {
             return Self::empty();
-        }
+        };
+
+        let mut positions = vec![first];
+        positions.extend(iter);
 
         if positions.len() == 1 {
             return Self::Range {
@@ -84,19 +88,18 @@ impl PositionSpan {
             };
         }
 
-        let mut sorted = positions.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
+        positions.sort_unstable();
+        positions.dedup();
 
-        let is_contiguous = sorted.windows(2).all(|w| w[1] == w[0] + 1);
+        let is_contiguous = positions.windows(2).all(|w| w[1] == w[0] + 1);
 
         if is_contiguous {
             Self::Range {
-                start: sorted[0],
-                end: sorted[sorted.len() - 1] + 1,
+                start: positions[0],
+                end: positions[positions.len() - 1] + 1,
             }
         } else {
-            Self::Discrete(sorted)
+            Self::Discrete(positions)
         }
     }
 

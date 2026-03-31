@@ -264,10 +264,7 @@ fn collect_reportable_tokens(
 
         let mut is_included = false;
 
-        if token
-            .pos
-            .is_some_and(|pos| matched_positions.contains(pos))
-        {
+        if token.pos.is_some_and(|pos| matched_positions.contains(pos)) {
             token.is_matched = true;
             is_included = true;
         }
@@ -993,11 +990,7 @@ impl<'a> QueryRun<'a> {
             if let Some(ref cached) = *self.combined_matchables.borrow() {
                 return cached.clone();
             }
-            let combined: PositionSet = self
-                .low_matchables()
-                .iter()
-                .chain(self.high_matchables().iter())
-                .collect();
+            let combined = self.low_matchables().union(&self.high_matchables());
             *self.combined_matchables.borrow_mut() = Some(combined.clone());
             combined
         } else {

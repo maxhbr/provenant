@@ -78,7 +78,7 @@ pub fn unknown_match(
             continue;
         }
 
-        let qspan_length: usize = qspan.iter().map(|(s, e)| e - s).sum();
+        let qspan_length = qspan.len();
 
         // DEBUG
         #[cfg(debug_assertions)]
@@ -117,10 +117,7 @@ pub fn unknown_match(
     unknown_matches
 }
 
-fn compute_covered_positions(
-    _query: &Query,
-    known_matches: &[LicenseMatch],
-) -> PositionSet {
+fn compute_covered_positions(_query: &Query, known_matches: &[LicenseMatch]) -> PositionSet {
     let mut covered = PositionSet::new();
     for m in known_matches {
         covered.extend_from_span(&m.effective_span());
@@ -188,9 +185,9 @@ fn get_matched_ngrams(
     matches
 }
 
-fn compute_qspan_union(positions: &[(usize, usize)]) -> Vec<(usize, usize)> {
+fn compute_qspan_union(positions: &[(usize, usize)]) -> PositionSet {
     if positions.is_empty() {
-        return Vec::new();
+        return PositionSet::new();
     }
 
     let mut sorted: Vec<_> = positions.to_vec();
@@ -209,17 +206,20 @@ fn compute_qspan_union(positions: &[(usize, usize)]) -> Vec<(usize, usize)> {
     }
     merged.push(current);
 
-    merged
+    let mut result = PositionSet::new();
+    for (start, end) in merged {
+        result.extend_from_span(&PositionSpan::range(start, end));
+    }
+    result
 }
 
 fn compute_hispan_from_qspan(
     tokens: &[TokenId],
-    qspan: &[(usize, usize)],
+    qspan: &PositionSet,
     index: &LicenseIndex,
 ) -> usize {
     qspan
         .iter()
-        .flat_map(|(start, end)| *start..*end)
         .filter(|&pos| {
             tokens
                 .get(pos)
@@ -228,20 +228,15 @@ fn compute_hispan_from_qspan(
         .count()
 }
 
-fn create_unknown_match_from_qspan(
-    query: &Query,
-    qspan: &[(usize, usize)],
-) -> Option<LicenseMatch> {
+fn create_unknown_match_from_qspan(query: &Query, qspan: &PositionSet) -> Option<LicenseMatch> {
     if qspan.is_empty() {
         return None;
     }
 
-    let qspan_positions: Vec<usize> = qspan.iter().flat_map(|(start, end)| *start..*end).collect();
+    let match_len = qspan.len();
 
-    let match_len = qspan_positions.len();
-
-    let start = qspan.first()?.0;
-    let end = qspan.last()?.1;
+    let start = qspan.min_pos();
+    let end = qspan.max_pos() + 1;
 
     let start_line = query.line_by_pos.get(start).copied().unwrap_or(1);
     let end_line = query
@@ -250,6 +245,7 @@ fn create_unknown_match_from_qspan(
         .copied()
         .unwrap_or(start_line);
 
+    let qspan_positions: Vec<usize> = qspan.iter().collect();
     let synthetic_rule_text =
         build_unknown_rule_text(query, &qspan_positions, start_line, end_line);
     let rule_identifier = build_unknown_rule_identifier(&synthetic_rule_text);
@@ -280,7 +276,7 @@ fn create_unknown_match_from_qspan(
         rule_kind: crate::license_detection::models::RuleKind::None,
         is_from_license: false,
         rule_start_token: 0,
-        qspan: PositionSpan::from_positions(qspan_positions),
+        qspan: qspan.to_position_span(),
         ispan: PositionSpan::empty(),
         hispan: PositionSpan::empty(),
         candidate_resemblance: 0.0,
@@ -302,8 +298,7 @@ fn build_unknown_rule_text(
         return String::new();
     };
 
-    let matched_positions: PositionSet =
-        qspan_positions.iter().copied().collect();
+    let matched_positions: PositionSet = qspan_positions.iter().copied().collect();
     let tokens = tokenize_matched_unknown_text(&query.text, query);
     let reportable_tokens = collect_reportable_unknown_tokens(
         tokens,
@@ -604,11 +599,10 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_partial_coverage() {
         let query_len = 20;
-        let covered_positions: PositionSet =
-            [0, 1, 2, 12, 13, 14, 15, 16, 17, 18, 19]
-                .iter()
-                .cloned()
-                .collect();
+        let covered_positions: PositionSet = [0, 1, 2, 12, 13, 14, 15, 16, 17, 18, 19]
+            .iter()
+            .cloned()
+            .collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -619,8 +613,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_trailing_unmatched() {
         let query_len = 20;
-        let covered_positions: PositionSet =
-            [0, 1, 2, 3, 4, 5].iter().cloned().collect();
+        let covered_positions: PositionSet = [0, 1, 2, 3, 4, 5].iter().cloned().collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -639,28 +632,46 @@ mod tests {
     fn test_compute_qspan_union_single() {
         let positions = vec![(5, 11)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 11)]);
+        assert_eq!(merged.len(), 6);
+        assert!(merged.contains(5));
+        assert!(merged.contains(10));
+        assert!(!merged.contains(4));
+        assert!(!merged.contains(11));
     }
 
     #[test]
     fn test_compute_qspan_union_overlapping() {
         let positions = vec![(5, 11), (8, 14), (20, 26)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 14), (20, 26)]);
+        assert_eq!(merged.len(), 15);
+        assert!(merged.contains(5));
+        assert!(merged.contains(13));
+        assert!(!merged.contains(14));
+        assert!(merged.contains(20));
+        assert!(merged.contains(25));
+        assert!(!merged.contains(26));
     }
 
     #[test]
     fn test_compute_qspan_union_adjacent() {
         let positions = vec![(5, 11), (11, 17)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 17)]);
+        assert_eq!(merged.len(), 12);
+        assert!(merged.contains(5));
+        assert!(merged.contains(16));
+        assert!(!merged.contains(4));
+        assert!(!merged.contains(17));
     }
 
     #[test]
     fn test_compute_qspan_union_unsorted() {
         let positions = vec![(20, 26), (5, 11), (8, 14)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 14), (20, 26)]);
+        assert_eq!(merged.len(), 15);
+        assert!(merged.contains(5));
+        assert!(merged.contains(13));
+        assert!(merged.contains(20));
+        assert!(merged.contains(25));
     }
 
     #[test]
@@ -688,7 +699,10 @@ mod tests {
         for i in 15..30 {
             tokens.push(index.dictionary.get_or_assign(&format!("regular-{i}")));
         }
-        let qspan = vec![(0, 10), (20, 25)];
+        let qspan: PositionSet = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24]
+            .iter()
+            .copied()
+            .collect();
         let hispan = compute_hispan_from_qspan(&tokens, &qspan, &index);
         assert_eq!(hispan, 10);
     }
@@ -758,11 +772,10 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_leading_unmatched() {
         let query_len = 20;
-        let covered_positions: PositionSet =
-            [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-                .iter()
-                .cloned()
-                .collect();
+        let covered_positions: PositionSet = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            .iter()
+            .cloned()
+            .collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -951,7 +964,7 @@ mod tests {
         let tokens: Vec<u16> = (0..30).collect();
         let query = create_mock_query_with_tokens(&tokens, &index);
 
-        let qspan = vec![(0, 30)];
+        let qspan: PositionSet = (0..30).collect();
 
         let match_result = create_unknown_match_from_qspan(&query, &qspan);
 

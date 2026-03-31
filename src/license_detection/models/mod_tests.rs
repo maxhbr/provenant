@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::license_detection::index::dictionary::tid;
     use crate::license_detection::index::LicenseIndex;
+    use crate::license_detection::index::dictionary::tid;
     use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::models::{License, LicenseMatch, MatcherKind, Rule, RuleKind};
     use crate::license_detection::position_set::PositionSet;
@@ -585,75 +585,6 @@ mod tests {
         assert!(json.contains("\"license_expression\":\"mit\""));
         assert!(json.contains("\"license_expression_spdx\":\"MIT\""));
         assert!(json.contains("\"start_line\":1"));
-    }
-
-    #[test]
-    fn test_license_match_deserialization() {
-        let json = r#"{
-            "license_expression": "apache-2.0",
-            "license_expression_spdx": "Apache-2.0",
-            "from_file": "LICENSE",
-            "start_line": 10,
-            "end_line": 20,
-            "matcher": "1-hash",
-            "score": 0.99,
-            "matched_length": 500,
-            "match_coverage": 99.0,
-            "rule_relevance": 95,
-            "rule_identifier": "apache-2.0.LICENSE",
-            "rule_url": "https://example.org/apache-2.0",
-            "matched_text": "Apache License",
-            "referenced_filenames": ["NOTICE"],
-            "is_license_intro": false,
-            "is_license_clue": false
-        }"#;
-
-        let match_result: LicenseMatch = serde_json::from_str(json).unwrap();
-
-        assert_eq!(match_result.license_expression, "apache-2.0");
-        assert_eq!(match_result.start_line, 10);
-        assert_eq!(match_result.end_line, 20);
-        assert!((match_result.score - 0.99).abs() < 0.001);
-        assert_eq!(
-            match_result.referenced_filenames,
-            Some(vec!["NOTICE".to_string()])
-        );
-    }
-
-    #[test]
-    fn test_license_match_roundtrip_serialization() {
-        let original = create_license_match();
-        let json = serde_json::to_string(&original).unwrap();
-        let deserialized: LicenseMatch = serde_json::from_str(&json).unwrap();
-
-        // Check all serializable fields match (qspan/ispan/hispan are not serialized)
-        assert_eq!(original.license_expression, deserialized.license_expression);
-        assert_eq!(
-            original.license_expression_spdx,
-            deserialized.license_expression_spdx
-        );
-        assert_eq!(original.from_file, deserialized.from_file);
-        assert_eq!(original.start_line, deserialized.start_line);
-        assert_eq!(original.end_line, deserialized.end_line);
-        assert_eq!(original.start_token, deserialized.start_token);
-        assert_eq!(original.end_token, deserialized.end_token);
-        assert_eq!(original.matcher, deserialized.matcher);
-        assert_eq!(original.score, deserialized.score);
-        assert_eq!(original.matched_length, deserialized.matched_length);
-        assert_eq!(original.rule_length, deserialized.rule_length);
-        assert_eq!(original.match_coverage, deserialized.match_coverage);
-        assert_eq!(original.rule_relevance, deserialized.rule_relevance);
-        assert_eq!(original.rule_identifier, deserialized.rule_identifier);
-        assert_eq!(original.rule_url, deserialized.rule_url);
-        assert_eq!(original.matched_text, deserialized.matched_text);
-        assert_eq!(
-            original.referenced_filenames,
-            deserialized.referenced_filenames
-        );
-        assert_eq!(original.rule_kind, deserialized.rule_kind);
-        assert_eq!(original.is_from_license, deserialized.is_from_license);
-        assert_eq!(original.hilen(), deserialized.hilen());
-        assert_eq!(original.rule_start_token, deserialized.rule_start_token);
     }
 
     #[test]

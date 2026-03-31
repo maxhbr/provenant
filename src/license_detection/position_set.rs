@@ -120,6 +120,17 @@ impl PositionSet {
         range_end > self.min_pos && range_start <= self.max_pos
     }
 
+    /// Compute the union of this set with another PositionSet.
+    ///
+    /// Returns a new PositionSet containing all positions from both sets.
+    pub fn union(&self, other: &PositionSet) -> PositionSet {
+        let mut result = self.clone();
+        for pos in other.iter() {
+            result.insert(pos);
+        }
+        result
+    }
+
     /// Return the difference (elements in self but not in other).
     pub fn difference(&self, other: &PositionSet) -> PositionSet {
         let mut result = PositionSet::new();
