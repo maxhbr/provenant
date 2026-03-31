@@ -5,12 +5,11 @@
 
 use sha1::{Digest, Sha1};
 
-use crate::license_detection::index::dictionary::{TokenId, TokenKind};
 use crate::license_detection::index::LicenseIndex;
+use crate::license_detection::index::dictionary::{TokenId, TokenKind};
 use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
 use crate::license_detection::query::QueryRun;
-use crate::license_detection::spans::Span;
 
 pub const MATCH_HASH: MatcherKind = MatcherKind::Hash;
 
@@ -58,10 +57,7 @@ pub fn hash_match(index: &LicenseIndex, query_run: &QueryRun) -> Vec<LicenseMatc
         let rule = &index.rules_by_rid[rid];
         let itokens = &index.tids_by_rid[rid];
 
-        let _qspan =
-            Span::from_range(query_run.start..query_run.end.map_or(query_run.start, |e| e + 1));
         let rule_length = rule.tokens.len();
-        let _ispan = Span::from_range(0..rule_length);
 
         let end = query_run.end.unwrap_or(query_run.start);
         let qspan = PositionSpan::range(query_run.start, end + 1);

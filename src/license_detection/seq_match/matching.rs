@@ -2,8 +2,8 @@
 
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::TokenId;
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::LicenseMatch;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::query::QueryRun;
 use bit_set::BitSet;
 use std::collections::HashMap;

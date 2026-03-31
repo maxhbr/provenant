@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::RuleKind;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::position_set::PositionSet;
 
 fn default_rule_length() -> usize {
@@ -558,6 +558,9 @@ impl LicenseMatch {
     /// Return true if all matched tokens are continuous without gaps or unknowns.
     /// Python: len() == qregion_len() == qmagnitude()
     pub fn is_continuous(&self, query: &crate::license_detection::query::Query) -> bool {
+        if !self.qspan.is_contiguous() {
+            return false;
+        }
         let len = self.len();
         let qregion_len = self.qregion_len();
         let qmagnitude = self.qmagnitude(query);

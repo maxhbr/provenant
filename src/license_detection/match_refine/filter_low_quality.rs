@@ -546,8 +546,8 @@ pub(crate) fn filter_too_short_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::models::Rule;
+    use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::unknown_match::MATCH_UNKNOWN;
 
     fn parse_rule_id(rule_identifier: &str) -> Option<usize> {

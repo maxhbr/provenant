@@ -145,7 +145,7 @@ pub fn merge_overlapping_matches(matches: &[LicenseMatch]) -> Vec<LicenseMatch> 
                     continue;
                 }
 
-                if current.ispan.to_vec() == next.ispan.to_vec() && current.qoverlap(next) > 0 {
+                if current.ispan == next.ispan && current.qoverlap(next) > 0 {
                     let current_mag = current.qspan_magnitude();
                     let next_mag = next.qspan_magnitude();
                     if current_mag <= next_mag {

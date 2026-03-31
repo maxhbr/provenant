@@ -19,8 +19,8 @@ use sha1::{Digest, Sha1};
 use crate::license_detection::expression::{
     LicenseExpression, expression_to_string, parse_expression,
 };
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::index::LicenseIndex;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
 use crate::license_detection::query::Query;
 

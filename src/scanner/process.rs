@@ -978,8 +978,7 @@ fn matched_text_diagnostics_from_match(
     query: &Query<'_>,
     license_match: &InternalLicenseMatch,
 ) -> String {
-    let matched_positions: std::collections::HashSet<usize> =
-        license_match.qspan.iter().collect();
+    let matched_positions: std::collections::HashSet<usize> = license_match.qspan.iter().collect();
     let Some(start_pos) = matched_positions.iter().min().copied() else {
         return crate::license_detection::query::matched_text_from_text(
             &query.text,

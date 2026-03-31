@@ -123,11 +123,12 @@ fn compute_covered_positions(
     let mut covered = std::collections::HashSet::new();
 
     for m in known_matches {
-        let positions: Box<dyn Iterator<Item = usize>> = if m.qspan.is_empty() && m.start_token < m.end_token {
-            Box::new(m.start_token..m.end_token)
-        } else {
-            Box::new(m.qspan.iter())
-        };
+        let positions: Box<dyn Iterator<Item = usize>> =
+            if m.qspan.is_empty() && m.start_token < m.end_token {
+                Box::new(m.start_token..m.end_token)
+            } else {
+                Box::new(m.qspan.iter())
+            };
         for pos in positions {
             covered.insert(pos);
         }
