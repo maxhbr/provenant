@@ -3,7 +3,6 @@
 //! This module contains functions for merging overlapping and adjacent matches,
 //! updating match scores, and filtering license references.
 
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::LicenseMatch;
 use crate::license_detection::query::Query;
 
@@ -20,29 +19,35 @@ fn combine_matches(a: &LicenseMatch, b: &LicenseMatch) -> LicenseMatch {
 
     let mut qspan_set = a.qspan.to_position_set();
     qspan_set.extend_from_span(&b.qspan);
-    let mut qspan_vec: Vec<usize> = qspan_set.iter().collect();
-    qspan_vec.sort_unstable();
 
     let mut ispan_set = a.ispan.to_position_set();
     ispan_set.extend_from_span(&b.ispan);
-    let mut ispan_vec: Vec<usize> = ispan_set.iter().collect();
-    ispan_vec.sort_unstable();
 
     let mut hispan_set = a.hispan.to_position_set();
     hispan_set.extend_from_span(&b.hispan);
-    let mut hispan_vec: Vec<usize> = hispan_set.iter().collect();
-    hispan_vec.sort_unstable();
 
-    merged.start_token = *qspan_vec.first().unwrap_or(&a.start_token);
-    merged.end_token = qspan_vec.last().map(|&x| x + 1).unwrap_or(a.end_token);
-    merged.rule_start_token = *ispan_vec.first().unwrap_or(&a.rule_start_token);
-    merged.matched_length = qspan_vec.len();
-    merged.hispan = PositionSpan::from_positions(hispan_vec);
+    merged.start_token = if qspan_set.is_empty() {
+        a.start_token
+    } else {
+        qspan_set.min_pos()
+    };
+    merged.end_token = if qspan_set.is_empty() {
+        a.end_token
+    } else {
+        qspan_set.max_pos() + 1
+    };
+    merged.rule_start_token = if ispan_set.is_empty() {
+        a.rule_start_token
+    } else {
+        ispan_set.min_pos()
+    };
+    merged.matched_length = qspan_set.len();
+    merged.hispan = hispan_set.to_position_span();
     merged.start_line = a.start_line.min(b.start_line);
     merged.end_line = a.end_line.max(b.end_line);
     merged.score = a.score.max(b.score);
-    merged.qspan = PositionSpan::from_positions(qspan_vec);
-    merged.ispan = PositionSpan::from_positions(ispan_vec);
+    merged.qspan = qspan_set.to_position_span();
+    merged.ispan = ispan_set.to_position_span();
 
     if merged.rule_length > 0 {
         merged.match_coverage = LicenseMatch::round_metric(

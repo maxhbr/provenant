@@ -348,7 +348,11 @@ impl<'de> Deserialize<'de> for LicenseMatch {
             rule_start_token: value.rule_start_token,
             qspan: PositionSpan::empty(),
             ispan: PositionSpan::empty(),
-            hispan: PositionSpan::empty(),
+            hispan: if value.hilen > 0 {
+                PositionSpan::range(0, value.hilen)
+            } else {
+                PositionSpan::empty()
+            },
             candidate_resemblance: value.candidate_resemblance,
             candidate_containment: value.candidate_containment,
         })
@@ -556,14 +560,7 @@ impl LicenseMatch {
     }
 
     pub fn overlaps_with(&self, other: &PositionSet) -> bool {
-        let (my_min, my_max) = self.qspan.bounds();
-        if my_min == my_max {
-            return false;
-        }
-        if !other.may_overlap_range(my_min, my_max) {
-            return false;
-        }
-        self.qspan.iter().any(|p| other.contains(p))
+        self.qspan.overlaps_set(other)
     }
 
     pub fn qspan_eq(&self, other: &LicenseMatch) -> bool {

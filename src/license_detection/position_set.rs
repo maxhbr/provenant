@@ -51,6 +51,20 @@ impl PositionSet {
         self.bitset.is_empty()
     }
 
+    /// Returns the minimum position in the set.
+    ///
+    /// Returns `usize::MAX` for an empty set.
+    pub fn min_pos(&self) -> usize {
+        self.min_pos
+    }
+
+    /// Returns the maximum position in the set.
+    ///
+    /// Returns `0` for an empty set.
+    pub fn max_pos(&self) -> usize {
+        self.max_pos
+    }
+
     /// Insert a position.
     pub fn insert(&mut self, pos: usize) -> bool {
         let inserted = self.bitset.insert(pos);
@@ -85,6 +99,13 @@ impl PositionSet {
     /// Remove a position from the set.
     pub fn remove(&mut self, pos: usize) -> bool {
         self.bitset.remove(pos)
+    }
+
+    /// Remove all positions in a span from the set.
+    pub fn remove_span(&mut self, span: &PositionSpan) {
+        for pos in span.iter() {
+            self.remove(pos);
+        }
     }
 
     /// Quick check if a range [range_start, range_end) might overlap with this set.
@@ -147,6 +168,24 @@ impl PositionSet {
     /// Iterate over positions.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         self.bitset.iter()
+    }
+
+    /// Convert this PositionSet to a PositionSpan.
+    ///
+    /// If positions are contiguous, returns a Range; otherwise returns Discrete.
+    pub fn to_position_span(&self) -> PositionSpan {
+        if self.is_empty() {
+            return PositionSpan::empty();
+        }
+
+        let positions: Vec<usize> = self.iter().collect();
+        let is_contiguous = positions.windows(2).all(|w| w[1] == w[0] + 1);
+
+        if is_contiguous {
+            PositionSpan::range(self.min_pos, self.max_pos + 1)
+        } else {
+            PositionSpan::from_positions(positions)
+        }
     }
 }
 
@@ -335,5 +374,54 @@ mod tests {
         let set = PositionSet::from_usize_iter(vec![10, 11, 12]);
         assert!(!set.contains_range(0..5));
         assert!(!set.contains_range(15..20));
+    }
+
+    #[test]
+    fn test_to_position_span_empty() {
+        let set = PositionSet::new();
+        let span = set.to_position_span();
+        assert!(span.is_empty());
+    }
+
+    #[test]
+    fn test_to_position_span_contiguous() {
+        let set = PositionSet::from_usize_iter(vec![5, 6, 7, 8]);
+        let span = set.to_position_span();
+        assert_eq!(span, PositionSpan::range(5, 9));
+    }
+
+    #[test]
+    fn test_to_position_span_single() {
+        let set = PositionSet::from_usize_iter(vec![10]);
+        let span = set.to_position_span();
+        assert_eq!(span, PositionSpan::range(10, 11));
+    }
+
+    #[test]
+    fn test_to_position_span_discrete() {
+        let set = PositionSet::from_usize_iter(vec![1, 3, 5, 7]);
+        let span = set.to_position_span();
+        assert_eq!(span, PositionSpan::from_positions(vec![1, 3, 5, 7]));
+    }
+
+    #[test]
+    fn test_to_position_span_two_with_gap() {
+        let set = PositionSet::from_usize_iter(vec![1, 3]);
+        let span = set.to_position_span();
+        assert_eq!(span, PositionSpan::from_positions(vec![1, 3]));
+    }
+
+    #[test]
+    fn test_min_max_pos() {
+        let set = PositionSet::from_usize_iter(vec![5, 10, 15]);
+        assert_eq!(set.min_pos(), 5);
+        assert_eq!(set.max_pos(), 15);
+    }
+
+    #[test]
+    fn test_min_max_pos_empty() {
+        let set = PositionSet::new();
+        assert_eq!(set.min_pos(), usize::MAX);
+        assert_eq!(set.max_pos(), 0);
     }
 }

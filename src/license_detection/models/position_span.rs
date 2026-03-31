@@ -143,6 +143,17 @@ impl PositionSpan {
         }
     }
 
+    pub fn overlaps_set(&self, set: &PositionSet) -> bool {
+        let (my_min, my_max) = self.bounds();
+        if self.is_empty() {
+            return false;
+        }
+        if !set.may_overlap_range(my_min, my_max) {
+            return false;
+        }
+        self.iter().any(|p| set.contains(p))
+    }
+
     pub fn to_position_set(&self) -> PositionSet {
         match self {
             PositionSpan::Range { start, end } => (*start..*end).collect(),

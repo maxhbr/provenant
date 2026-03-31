@@ -180,18 +180,15 @@ pub(crate) fn filter_matches_missing_required_phrases(
             continue;
         }
 
-        let ispan = m.ispan.to_vec();
         let ispan_set = m.ispan.to_position_set();
         let qspan = m.qspan.to_vec();
 
         if is_continuous {
-            if !ispan.is_empty() {
-                let qkey_span: Vec<usize> = qspan.clone();
-
-                if let Some(_qkey_end) = qkey_span.last() {
-                    let contains_unknown = qkey_span
+            if !m.ispan.is_empty() {
+                if let Some(_qkey_end) = qspan.last() {
+                    let contains_unknown = qspan
                         .iter()
-                        .take(qkey_span.len() - 1)
+                        .take(qspan.len() - 1)
                         .any(|&qpos| query.unknowns_by_pos.contains_key(&Some(qpos as i32)));
 
                     if contains_unknown {
@@ -201,11 +198,11 @@ pub(crate) fn filter_matches_missing_required_phrases(
                 }
 
                 let qkey_span_set = m.qspan.to_position_set();
-                let qkey_span_end = qkey_span.last().copied();
+                let qkey_span_end = qspan.last().copied();
 
                 let has_same_stopwords = {
                     let mut ok = true;
-                    for (&qpos, &ipos) in qspan.iter().zip(ispan.iter()) {
+                    for (&qpos, ipos) in qspan.iter().zip(m.ispan.iter()) {
                         if !qkey_span_set.contains(qpos) || Some(qpos) == qkey_span_end {
                             continue;
                         }
@@ -248,8 +245,8 @@ pub(crate) fn filter_matches_missing_required_phrases(
         for ikey_span in ikey_spans {
             let qkey_span: Vec<usize> = qspan
                 .iter()
-                .zip(ispan.iter())
-                .filter_map(|(&qpos, &ipos)| {
+                .zip(m.ispan.iter())
+                .filter_map(|(&qpos, ipos)| {
                     if ikey_span.contains(&ipos) {
                         Some(qpos)
                     } else {
@@ -287,7 +284,7 @@ pub(crate) fn filter_matches_missing_required_phrases(
 
             let has_same_stopwords = {
                 let mut ok = true;
-                for (&qpos, &ipos) in qspan.iter().zip(ispan.iter()) {
+                for (&qpos, ipos) in qspan.iter().zip(m.ispan.iter()) {
                     if !qkey_span_set.contains(qpos) || Some(qpos) == qkey_span_end {
                         continue;
                     }

@@ -763,10 +763,8 @@ impl<'a> Query<'a> {
     ///
     /// Corresponds to Python: `subtract()` method (lines 328-334)
     pub fn subtract(&mut self, span: &PositionSpan) {
-        for pos in span.iter() {
-            self.high_matchables.remove(pos);
-            self.low_matchables.remove(pos);
-        }
+        self.high_matchables.remove_span(span);
+        self.low_matchables.remove_span(span);
     }
 
     /// Extract matched text for a given line range.
@@ -984,9 +982,7 @@ impl<'a> QueryRun<'a> {
 
         let mut matchable_set = matchables;
         for span in exclude_positions {
-            for pos in span.iter() {
-                matchable_set.remove(pos);
-            }
+            matchable_set.remove_span(span);
         }
 
         !matchable_set.is_empty()
