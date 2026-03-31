@@ -480,15 +480,16 @@ impl LicenseMatch {
 
     pub fn qmagnitude(&self, query: &crate::license_detection::query::Query) -> usize {
         let qregion_len = self.qregion_len();
-        let positions: Vec<usize> = self.qspan.to_vec();
-        if positions.is_empty() {
+        if self.qspan.is_empty() {
             return qregion_len;
         }
-        let max_pos = *positions.iter().max().unwrap_or(&0);
-        let unknowns_in_match: usize = positions
+        let (_, end_exclusive) = self.qspan.bounds();
+        let max_pos = end_exclusive.saturating_sub(1);
+        let unknowns_in_match: usize = self
+            .qspan
             .iter()
-            .filter(|&&pos| pos != max_pos)
-            .filter_map(|&pos| query.unknowns_by_pos.get(&Some(pos as i32)))
+            .filter(|&pos| pos != max_pos)
+            .filter_map(|pos| query.unknowns_by_pos.get(&Some(pos as i32)))
             .sum();
         qregion_len + unknowns_in_match
     }

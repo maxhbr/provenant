@@ -5,8 +5,8 @@
 
 use std::collections::HashSet;
 
-use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::LicenseMatch;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::query::Query;
 
 const MAX_DIST: usize = 50;
