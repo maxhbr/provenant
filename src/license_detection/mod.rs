@@ -19,7 +19,6 @@ pub mod models;
 pub mod query;
 pub mod rules;
 pub mod seq_match;
-pub mod spans;
 pub mod spdx_lid;
 pub mod spdx_mapping;
 #[cfg(test)]

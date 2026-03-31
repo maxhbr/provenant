@@ -6,7 +6,7 @@
 use crate::license_detection::expression::licensing_contains;
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::models::LicenseMatch;
-use crate::license_detection::spans::Span;
+use crate::license_detection::position_set::PositionSet;
 
 use super::merge::merge_overlapping_matches;
 
@@ -344,16 +344,16 @@ pub fn filter_overlapping_matches(
     (matches, discarded)
 }
 
-fn match_to_qspan(m: &LicenseMatch) -> Span {
+fn match_to_qspan(m: &LicenseMatch) -> PositionSet {
     if !m.qspan.is_empty() {
-        return Span::from_iterator(m.qspan.iter());
+        return m.qspan.to_position_set();
     }
 
     if m.start_token == 0 && m.end_token == 0 {
-        return Span::from_range(m.start_line..m.end_line + 1);
+        return (m.start_line..m.end_line + 1).collect();
     }
 
-    Span::from_range(m.start_token..m.end_token)
+    (m.start_token..m.end_token).collect()
 }
 
 /// Restore non-overlapping discarded matches.
@@ -372,9 +372,12 @@ pub fn restore_non_overlapping(
     matches: &[LicenseMatch],
     discarded: Vec<LicenseMatch>,
 ) -> (Vec<LicenseMatch>, Vec<LicenseMatch>) {
-    let all_matched_qspans = matches
-        .iter()
-        .fold(Span::new(), |acc, m| acc.union_span(&match_to_qspan(m)));
+    let mut all_matched_positions = PositionSet::new();
+    for m in matches {
+        for pos in match_to_qspan(m).iter() {
+            all_matched_positions.insert(pos);
+        }
+    }
 
     let mut to_keep = Vec::new();
     let mut to_discard = Vec::new();
@@ -382,8 +385,11 @@ pub fn restore_non_overlapping(
     let merged_discarded = merge_overlapping_matches(&discarded);
 
     for disc in merged_discarded {
-        let disc_qspan = match_to_qspan(&disc);
-        if !disc_qspan.intersects(&all_matched_qspans) {
+        let disc_positions = match_to_qspan(&disc);
+        if !disc_positions
+            .iter()
+            .any(|p| all_matched_positions.contains(p))
+        {
             to_keep.push(disc);
         } else {
             to_discard.push(disc);
