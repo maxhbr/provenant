@@ -5,6 +5,7 @@
 
 use crate::license_detection::expression::licensing_contains;
 use crate::license_detection::index::LicenseIndex;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::LicenseMatch;
 use crate::license_detection::position_set::PositionSet;
 
@@ -344,16 +345,14 @@ pub fn filter_overlapping_matches(
     (matches, discarded)
 }
 
-fn match_to_qspan(m: &LicenseMatch) -> PositionSet {
+fn match_to_qspan(m: &LicenseMatch) -> PositionSpan {
     if !m.qspan.is_empty() {
-        return m.qspan.to_position_set();
+        return m.qspan.clone();
     }
-
     if m.start_token == 0 && m.end_token == 0 {
-        return (m.start_line..m.end_line + 1).collect();
+        return PositionSpan::range(m.start_line, m.end_line + 1);
     }
-
-    (m.start_token..m.end_token).collect()
+    PositionSpan::range(m.start_token, m.end_token)
 }
 
 /// Restore non-overlapping discarded matches.
@@ -374,9 +373,7 @@ pub fn restore_non_overlapping(
 ) -> (Vec<LicenseMatch>, Vec<LicenseMatch>) {
     let mut all_matched_positions = PositionSet::new();
     for m in matches {
-        for pos in match_to_qspan(m).iter() {
-            all_matched_positions.insert(pos);
-        }
+        all_matched_positions.extend_from_span(&match_to_qspan(m));
     }
 
     let mut to_keep = Vec::new();
@@ -385,11 +382,8 @@ pub fn restore_non_overlapping(
     let merged_discarded = merge_overlapping_matches(&discarded);
 
     for disc in merged_discarded {
-        let disc_positions = match_to_qspan(&disc);
-        if !disc_positions
-            .iter()
-            .any(|p| all_matched_positions.contains(p))
-        {
+        let disc_span = match_to_qspan(&disc);
+        if !all_matched_positions.overlaps_span(&disc_span) {
             to_keep.push(disc);
         } else {
             to_discard.push(disc);

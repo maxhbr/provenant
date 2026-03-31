@@ -1,5 +1,7 @@
 use bit_set::BitSet;
 
+use crate::license_detection::models::position_span::PositionSpan;
+
 /// A set of usize positions stored as a BitSet.
 /// Provides O(1) membership testing and efficient set operations.
 /// Caches bounds for cheap overlap pre-checks.
@@ -59,6 +61,22 @@ impl PositionSet {
         inserted
     }
 
+    /// Extend this set from a PositionSpan without allocating an intermediate set.
+    pub fn extend_from_span(&mut self, span: &PositionSpan) {
+        match span {
+            PositionSpan::Range { start, end } => {
+                for pos in *start..*end {
+                    self.insert(pos);
+                }
+            }
+            PositionSpan::Discrete(positions) => {
+                for &pos in positions {
+                    self.insert(pos);
+                }
+            }
+        }
+    }
+
     /// Check if position is in the set.
     pub fn contains(&self, pos: usize) -> bool {
         self.bitset.contains(pos)
@@ -93,6 +111,19 @@ impl PositionSet {
             .iter()
             .filter(|&p| other.bitset.contains(p))
             .count()
+    }
+
+    /// Check if this set overlaps with a PositionSpan.
+    /// Uses O(1) bounds check before the O(n) element-wise check.
+    pub fn overlaps_span(&self, span: &PositionSpan) -> bool {
+        let (span_min, span_max) = span.bounds();
+        if span.is_empty() {
+            return false;
+        }
+        if !self.may_overlap_range(span_min, span_max) {
+            return false;
+        }
+        span.iter().any(|p| self.contains(p))
     }
 
     /// Iterate over positions.
@@ -193,5 +224,68 @@ mod tests {
     fn test_collect() {
         let set: PositionSet = vec![3, 1, 2].into_iter().collect();
         assert_eq!(set.iter().collect::<Vec<_>>(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_extend_from_span_range() {
+        let mut set = PositionSet::new();
+        set.extend_from_span(&PositionSpan::range(5, 10));
+        assert_eq!(set.len(), 5);
+        assert!(set.contains(5));
+        assert!(set.contains(9));
+        assert!(!set.contains(4));
+        assert!(!set.contains(10));
+    }
+
+    #[test]
+    fn test_extend_from_span_discrete() {
+        let mut set = PositionSet::new();
+        set.extend_from_span(&PositionSpan::from_positions(vec![1, 3, 5]));
+        assert_eq!(set.len(), 3);
+        assert!(set.contains(1));
+        assert!(set.contains(3));
+        assert!(set.contains(5));
+        assert!(!set.contains(2));
+    }
+
+    #[test]
+    fn test_extend_from_span_merge() {
+        let mut set = PositionSet::from_usize_iter(vec![1, 2, 3]);
+        set.extend_from_span(&PositionSpan::range(2, 6));
+        assert_eq!(set.len(), 5);
+        assert_eq!(set.iter().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_overlaps_span_range_yes() {
+        let set = PositionSet::from_usize_iter(vec![5, 6, 7]);
+        assert!(set.overlaps_span(&PositionSpan::range(6, 10)));
+        assert!(set.overlaps_span(&PositionSpan::range(0, 6)));
+    }
+
+    #[test]
+    fn test_overlaps_span_range_no() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3]);
+        assert!(!set.overlaps_span(&PositionSpan::range(5, 10)));
+        assert!(!set.overlaps_span(&PositionSpan::range(10, 20)));
+    }
+
+    #[test]
+    fn test_overlaps_span_discrete_yes() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3, 10, 11]);
+        assert!(set.overlaps_span(&PositionSpan::from_positions(vec![3, 4, 5])));
+        assert!(set.overlaps_span(&PositionSpan::from_positions(vec![0, 1])));
+    }
+
+    #[test]
+    fn test_overlaps_span_discrete_no() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3]);
+        assert!(!set.overlaps_span(&PositionSpan::from_positions(vec![5, 6, 7])));
+    }
+
+    #[test]
+    fn test_overlaps_span_empty() {
+        let set = PositionSet::from_usize_iter(vec![1, 2, 3]);
+        assert!(!set.overlaps_span(&PositionSpan::empty()));
     }
 }
