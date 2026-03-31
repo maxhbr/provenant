@@ -112,11 +112,6 @@ pub fn merge_overlapping_matches(matches: &[LicenseMatch]) -> Vec<LicenseMatch> 
             rule_matches.iter().map(|m| (*m).clone()).collect();
         let mut i = 0;
 
-        let mut current_qspan_set: HashSet<usize> = HashSet::with_capacity(64);
-        let mut next_qspan_set: HashSet<usize> = HashSet::with_capacity(64);
-        let mut current_ispan_set: HashSet<usize> = HashSet::with_capacity(64);
-        let mut next_ispan_set: HashSet<usize> = HashSet::with_capacity(64);
-
         while i < rule_matches.len().saturating_sub(1) {
             let mut j = i + 1;
 
@@ -130,17 +125,7 @@ pub fn merge_overlapping_matches(matches: &[LicenseMatch]) -> Vec<LicenseMatch> 
                     break;
                 }
 
-                current_qspan_set.clear();
-                next_qspan_set.clear();
-                current_ispan_set.clear();
-                next_ispan_set.clear();
-
-                current_qspan_set.extend(current.qspan.iter());
-                next_qspan_set.extend(next.qspan.iter());
-                current_ispan_set.extend(current.ispan.iter());
-                next_ispan_set.extend(next.ispan.iter());
-
-                if current_qspan_set == next_qspan_set && current_ispan_set == next_ispan_set {
+                if current.qspan == next.qspan && current.ispan == next.ispan {
                     rule_matches.remove(j);
                     continue;
                 }

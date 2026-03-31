@@ -25,10 +25,42 @@ impl<'a> Iterator for SpanIter<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum PositionSpan {
     Range { start: usize, end: usize },
     Discrete(Vec<usize>),
+}
+
+impl PartialEq for PositionSpan {
+    /// Compare two PositionSpans for semantic equality.
+    ///
+    /// Returns true if both spans contain exactly the same positions,
+    /// regardless of representation (Range vs Discrete).
+    ///
+    /// Performance:
+    /// - Range vs Range: O(1)
+    /// - Discrete vs Discrete: O(n)
+    /// - Range vs Discrete: O(n) with early exit on length mismatch
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                PositionSpan::Range { start: s1, end: e1 },
+                PositionSpan::Range { start: s2, end: e2 },
+            ) => s1 == s2 && e1 == e2,
+            (PositionSpan::Discrete(p1), PositionSpan::Discrete(p2)) => p1 == p2,
+            (PositionSpan::Range { start, end }, PositionSpan::Discrete(positions)) => {
+                let range_len = end.saturating_sub(*start);
+                if range_len != positions.len() {
+                    return false;
+                }
+                if positions.is_empty() {
+                    return true;
+                }
+                positions.iter().all(|&p| *start <= p && p < *end)
+            }
+            (PositionSpan::Discrete(_), PositionSpan::Range { .. }) => other == self,
+        }
+    }
 }
 
 impl PositionSpan {
@@ -271,5 +303,62 @@ mod tests {
     fn test_is_contiguous_discrete_gap() {
         let span = PositionSpan::from_positions(vec![1, 2, 4]);
         assert!(!span.is_contiguous());
+    }
+
+    #[test]
+    fn test_eq_range_range() {
+        let a = PositionSpan::range(0, 3);
+        let b = PositionSpan::range(0, 3);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_eq_range_range_different() {
+        let a = PositionSpan::range(0, 3);
+        let b = PositionSpan::range(0, 4);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_eq_discrete_discrete() {
+        let a = PositionSpan::from_positions(vec![0, 1, 2]);
+        let b = PositionSpan::from_positions(vec![0, 1, 2]);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_eq_discrete_discrete_different() {
+        let a = PositionSpan::from_positions(vec![0, 1, 2]);
+        let b = PositionSpan::from_positions(vec![0, 1, 3]);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_eq_range_discrete_same() {
+        let range = PositionSpan::range(0, 3);
+        let discrete = PositionSpan::Discrete(vec![0, 1, 2]);
+        assert_eq!(range, discrete);
+        assert_eq!(discrete, range);
+    }
+
+    #[test]
+    fn test_eq_range_discrete_different_len() {
+        let range = PositionSpan::range(0, 3);
+        let discrete = PositionSpan::Discrete(vec![0, 1]);
+        assert_ne!(range, discrete);
+    }
+
+    #[test]
+    fn test_eq_range_discrete_out_of_bounds() {
+        let range = PositionSpan::range(0, 3);
+        let discrete = PositionSpan::Discrete(vec![0, 1, 5]);
+        assert_ne!(range, discrete);
+    }
+
+    #[test]
+    fn test_eq_empty() {
+        let a = PositionSpan::empty();
+        let b = PositionSpan::empty();
+        assert_eq!(a, b);
     }
 }
