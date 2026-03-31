@@ -162,15 +162,6 @@ impl std::iter::FromIterator<usize> for PositionSet {
     }
 }
 
-impl IntoIterator for PositionSet {
-    type Item = usize;
-    type IntoIter = std::vec::IntoIter<usize>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.bitset.iter().collect::<Vec<_>>().into_iter()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

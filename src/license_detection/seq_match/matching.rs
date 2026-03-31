@@ -239,7 +239,7 @@ pub fn seq_match_with_candidates(
 
             let matchables: BitSet = query_run
                 .matchables(true)
-                .into_iter()
+                .iter()
                 .map(|pos| pos - query_run.start)
                 .collect();
 
