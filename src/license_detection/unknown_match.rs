@@ -9,6 +9,7 @@ use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::{TokenId, TokenKind};
 use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
+use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::query::Query;
 use crate::license_detection::tokenize::STOPWORDS;
 
@@ -119,21 +120,17 @@ pub fn unknown_match(
 fn compute_covered_positions(
     _query: &Query,
     known_matches: &[LicenseMatch],
-) -> std::collections::HashSet<usize> {
-    let mut covered = std::collections::HashSet::new();
-
+) -> PositionSet {
+    let mut covered = PositionSet::new();
     for m in known_matches {
-        for pos in m.effective_span().iter() {
-            covered.insert(pos);
-        }
+        covered.extend_from_span(&m.effective_span());
     }
-
     covered
 }
 
 fn find_unmatched_regions(
     query_len: usize,
-    covered_positions: &std::collections::HashSet<usize>,
+    covered_positions: &PositionSet,
 ) -> Vec<(usize, usize)> {
     let mut regions = Vec::new();
 
@@ -144,7 +141,7 @@ fn find_unmatched_regions(
     let mut region_start = None;
 
     for pos in 0..query_len {
-        if !covered_positions.contains(&pos) {
+        if !covered_positions.contains(pos) {
             if region_start.is_none() {
                 region_start = Some(pos);
             }
@@ -589,7 +586,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_no_coverage() {
         let query_len = 10;
-        let covered_positions = std::collections::HashSet::new();
+        let covered_positions = PositionSet::new();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -599,7 +596,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_full_coverage() {
         let query_len = 10;
-        let covered_positions: std::collections::HashSet<usize> = (0..10).collect();
+        let covered_positions: PositionSet = (0..10).collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -609,7 +606,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_partial_coverage() {
         let query_len = 20;
-        let covered_positions: std::collections::HashSet<usize> =
+        let covered_positions: PositionSet =
             [0, 1, 2, 12, 13, 14, 15, 16, 17, 18, 19]
                 .iter()
                 .cloned()
@@ -624,7 +621,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_trailing_unmatched() {
         let query_len = 20;
-        let covered_positions: std::collections::HashSet<usize> =
+        let covered_positions: PositionSet =
             [0, 1, 2, 3, 4, 5].iter().cloned().collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
@@ -763,7 +760,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_leading_unmatched() {
         let query_len = 20;
-        let covered_positions: std::collections::HashSet<usize> =
+        let covered_positions: PositionSet =
             [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
                 .iter()
                 .cloned()
@@ -778,7 +775,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_middle_gap() {
         let query_len = 30;
-        let covered_positions: std::collections::HashSet<usize> =
+        let covered_positions: PositionSet =
             [0, 1, 2, 3, 4, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
                 .iter()
                 .cloned()
@@ -828,14 +825,14 @@ mod tests {
 
         let covered = compute_covered_positions(&query, &known_matches);
 
-        assert!(covered.contains(&0), "Should contain position 0");
-        assert!(covered.contains(&2), "Should contain position 2");
-        assert!(covered.contains(&7), "Should contain position 7");
-        assert!(covered.contains(&9), "Should contain position 9");
-        assert!(!covered.contains(&3), "Should NOT contain position 3 (gap)");
-        assert!(!covered.contains(&5), "Should NOT contain position 5 (gap)");
+        assert!(covered.contains(0), "Should contain position 0");
+        assert!(covered.contains(2), "Should contain position 2");
+        assert!(covered.contains(7), "Should contain position 7");
+        assert!(covered.contains(9), "Should contain position 9");
+        assert!(!covered.contains(3), "Should NOT contain position 3 (gap)");
+        assert!(!covered.contains(5), "Should NOT contain position 5 (gap)");
         assert!(
-            !covered.contains(&10),
+            !covered.contains(10),
             "Should NOT contain position 10 (outside)"
         );
     }
@@ -878,15 +875,15 @@ mod tests {
 
         let covered = compute_covered_positions(&query, &known_matches);
 
-        assert!(covered.contains(&5), "Should contain position 5");
-        assert!(covered.contains(&7), "Should contain position 7");
-        assert!(covered.contains(&9), "Should contain position 9");
+        assert!(covered.contains(5), "Should contain position 5");
+        assert!(covered.contains(7), "Should contain position 7");
+        assert!(covered.contains(9), "Should contain position 9");
         assert!(
-            !covered.contains(&4),
+            !covered.contains(4),
             "Should NOT contain position 4 (before)"
         );
         assert!(
-            !covered.contains(&10),
+            !covered.contains(10),
             "Should NOT contain position 10 (after)"
         );
     }
@@ -941,7 +938,7 @@ mod tests {
             regions
         );
 
-        let contiguous_covered: std::collections::HashSet<usize> = (0..15).collect();
+        let contiguous_covered: PositionSet = (0..15).collect();
         let contiguous_regions = find_unmatched_regions(20, &contiguous_covered);
         assert_eq!(
             contiguous_regions,
