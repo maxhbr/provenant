@@ -200,7 +200,7 @@ pub(crate) fn filter_matches_missing_required_phrases(
                     }
                 }
 
-                let qkey_span_set: PositionSet = qkey_span.iter().copied().collect();
+                let qkey_span_set = m.qspan.to_position_set();
                 let qkey_span_end = qkey_span.last().copied();
 
                 let has_same_stopwords = {

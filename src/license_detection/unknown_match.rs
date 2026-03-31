@@ -109,7 +109,7 @@ pub fn unknown_match(
             continue;
         }
 
-        if let Some(match_result) = create_unknown_match_from_qspan(query, &qspan, hispan) {
+        if let Some(match_result) = create_unknown_match_from_qspan(query, &qspan) {
             unknown_matches.push(match_result);
         }
     }
@@ -231,7 +231,6 @@ fn compute_hispan_from_qspan(
 fn create_unknown_match_from_qspan(
     query: &Query,
     qspan: &[(usize, usize)],
-    _hispan: usize,
 ) -> Option<LicenseMatch> {
     if qspan.is_empty() {
         return None;
@@ -953,9 +952,8 @@ mod tests {
         let query = create_mock_query_with_tokens(&tokens, &index);
 
         let qspan = vec![(0, 30)];
-        let hispan = 30;
 
-        let match_result = create_unknown_match_from_qspan(&query, &qspan, hispan);
+        let match_result = create_unknown_match_from_qspan(&query, &qspan);
 
         assert!(
             match_result.is_some(),
