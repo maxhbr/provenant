@@ -3,10 +3,9 @@
 //! This module contains functions for filtering matches based on quality criteria
 //! like density, coverage, length, and required phrases.
 
-use std::collections::HashSet;
-
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
+use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::query::Query;
 
 /// Filter spurious matches with low density.
@@ -181,18 +180,17 @@ pub(crate) fn filter_matches_missing_required_phrases(
             continue;
         }
 
-        let ispan = m.ispan();
-        let ispan_set: HashSet<usize> = ispan.iter().copied().collect();
-        let qspan = m.qspan();
+        let ispan = m.effective_ispan();
+        let qspan_span = m.effective_span();
+        let ispan_set = ispan.to_position_set();
+        let qspan = qspan_span.to_vec();
 
         if is_continuous {
             if !ispan.is_empty() {
-                let qkey_span: Vec<usize> = qspan.clone();
-
-                if let Some(_qkey_end) = qkey_span.last() {
-                    let contains_unknown = qkey_span
+                if let Some(_qkey_end) = qspan.last() {
+                    let contains_unknown = qspan
                         .iter()
-                        .take(qkey_span.len() - 1)
+                        .take(qspan.len() - 1)
                         .any(|&qpos| query.unknowns_by_pos.contains_key(&Some(qpos as i32)));
 
                     if contains_unknown {
@@ -201,13 +199,13 @@ pub(crate) fn filter_matches_missing_required_phrases(
                     }
                 }
 
-                let qkey_span_set: HashSet<usize> = qkey_span.iter().copied().collect();
-                let qkey_span_end = qkey_span.last().copied();
+                let qkey_span_set = qspan_span.to_position_set();
+                let qkey_span_end = qspan.last().copied();
 
                 let has_same_stopwords = {
                     let mut ok = true;
-                    for (&qpos, &ipos) in qspan.iter().zip(ispan.iter()) {
-                        if !qkey_span_set.contains(&qpos) || Some(qpos) == qkey_span_end {
+                    for (&qpos, ipos) in qspan.iter().zip(ispan.iter()) {
+                        if !qkey_span_set.contains(qpos) || Some(qpos) == qkey_span_end {
                             continue;
                         }
 
@@ -237,7 +235,7 @@ pub(crate) fn filter_matches_missing_required_phrases(
 
         let all_contained = ikey_spans
             .iter()
-            .all(|span| (span.start..span.end).all(|pos| ispan_set.contains(&pos)));
+            .all(|span| ispan_set.contains_range(span.clone()));
 
         if !all_contained {
             discarded.push(m.clone());
@@ -250,7 +248,7 @@ pub(crate) fn filter_matches_missing_required_phrases(
             let qkey_span: Vec<usize> = qspan
                 .iter()
                 .zip(ispan.iter())
-                .filter_map(|(&qpos, &ipos)| {
+                .filter_map(|(&qpos, ipos)| {
                     if ikey_span.contains(&ipos) {
                         Some(qpos)
                     } else {
@@ -283,13 +281,13 @@ pub(crate) fn filter_matches_missing_required_phrases(
                 }
             }
 
-            let qkey_span_set: HashSet<usize> = qkey_span.iter().copied().collect();
+            let qkey_span_set: PositionSet = qkey_span.iter().copied().collect();
             let qkey_span_end = qkey_span.last().copied();
 
             let has_same_stopwords = {
                 let mut ok = true;
-                for (&qpos, &ipos) in qspan.iter().zip(ispan.iter()) {
-                    if !qkey_span_set.contains(&qpos) || Some(qpos) == qkey_span_end {
+                for (&qpos, ipos) in qspan.iter().zip(ispan.iter()) {
+                    if !qkey_span_set.contains(qpos) || Some(qpos) == qkey_span_end {
                         continue;
                     }
 
@@ -358,7 +356,7 @@ pub(crate) fn filter_matches_to_spurious_single_token(
                 .copied()
                 .unwrap_or(0)
                 + (qstart.saturating_sub(unknown_count)..qstart)
-                    .filter(|p| query.shorts_and_digits_pos.contains(p))
+                    .filter(|p| query.shorts_and_digits_pos.contains(*p))
                     .count();
 
             if before < unknown_count {
@@ -371,7 +369,7 @@ pub(crate) fn filter_matches_to_spurious_single_token(
                 .copied()
                 .unwrap_or(0)
                 + (qstart + 1..qstart + 1 + unknown_count)
-                    .filter(|p| query.shorts_and_digits_pos.contains(p))
+                    .filter(|p| query.shorts_and_digits_pos.contains(*p))
                     .count();
 
             if after >= unknown_count {
@@ -547,6 +545,7 @@ pub(crate) fn filter_too_short_matches(
 mod tests {
     use super::*;
     use crate::license_detection::models::Rule;
+    use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::unknown_match::MATCH_UNKNOWN;
 
     fn parse_rule_id(rule_identifier: &str) -> Option<usize> {
@@ -582,7 +581,6 @@ mod tests {
             score,
             matched_length: matched_len,
             rule_length: rule_len,
-            matched_token_positions: None,
             match_coverage: coverage,
             rule_relevance: relevance,
             rule_identifier: rule_identifier.to_string(),
@@ -591,11 +589,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -629,12 +626,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            matched_token_positions: None,
-            hilen: matched_length / 2,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -722,7 +717,8 @@ mod tests {
         let mut m = create_test_match("#1", 1, 10, 1.0, 100.0, 100);
         m.matcher = crate::license_detection::models::MatcherKind::Seq;
         m.matched_length = 50;
-        m.matched_token_positions = Some((0..50).collect());
+        m.qspan = PositionSpan::range(0, 50);
+        m.ispan = PositionSpan::range(0, 50);
 
         let matches = vec![m];
         let filtered = filter_spurious_matches(&matches, &query);
@@ -738,7 +734,7 @@ mod tests {
         m.matched_length = 5;
         m.start_token = 0;
         m.end_token = 100;
-        m.matched_token_positions = Some(vec![0, 50, 75, 80, 99]);
+        m.qspan = PositionSpan::from_positions(vec![0, 50, 75, 80, 99]);
 
         let matches = vec![m];
         let filtered = filter_spurious_matches(&matches, &query);
@@ -754,7 +750,7 @@ mod tests {
         m.matched_length = 5;
         m.start_token = 0;
         m.end_token = 100;
-        m.matched_token_positions = Some(vec![0, 50, 75, 80, 99]);
+        m.qspan = PositionSpan::from_positions(vec![0, 50, 75, 80, 99]);
 
         let matches = vec![m];
         let filtered = filter_spurious_matches(&matches, &query);
@@ -770,8 +766,9 @@ mod tests {
         m.matched_length = 25;
         m.start_token = 0;
         m.end_token = 30;
-        m.matched_token_positions = Some((0..25).collect());
-        m.hilen = 10;
+        m.qspan = PositionSpan::range(0, 25);
+        m.ispan = PositionSpan::range(0, 25);
+        m.hispan = PositionSpan::range(0, 10);
 
         let matches = vec![m];
         let filtered = filter_spurious_matches(&matches, &query);
@@ -864,7 +861,7 @@ mod tests {
         let mut m = create_test_match("#0", 1, 10, 0.9, 50.0, 100);
         m.matcher = crate::license_detection::models::MatcherKind::Seq;
         m.matched_length = 5;
-        m.hilen = 2;
+        m.hispan = PositionSpan::range(0, 2);
 
         let matches = vec![m];
         let filtered = filter_too_short_matches(&index, &matches);
@@ -917,7 +914,7 @@ mod tests {
         let mut m = create_test_match("#0", 1, 10, 0.9, 90.0, 100);
         m.matcher = crate::license_detection::models::MatcherKind::Seq;
         m.matched_length = 15;
-        m.hilen = 8;
+        m.hispan = PositionSpan::range(0, 8);
 
         let matches = vec![m];
         let filtered = filter_too_short_matches(&index, &matches);

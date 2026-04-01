@@ -6,7 +6,8 @@
 use crate::license_detection::expression::licensing_contains;
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::models::LicenseMatch;
-use crate::license_detection::spans::Span;
+use crate::license_detection::models::position_span::PositionSpan;
+use crate::license_detection::position_set::PositionSet;
 
 use super::merge::merge_overlapping_matches;
 
@@ -50,7 +51,7 @@ pub fn filter_contained_matches(
     matches.sort_by(|a, b| {
         a.qstart()
             .cmp(&b.qstart())
-            .then_with(|| b.hilen.cmp(&a.hilen))
+            .then_with(|| b.hilen().cmp(&a.hilen()))
             .then_with(|| b.len().cmp(&a.len()))
             .then_with(|| a.matcher_order().cmp(&b.matcher_order()))
     });
@@ -135,7 +136,7 @@ pub fn filter_overlapping_matches(
     matches.sort_by(|a, b| {
         a.qstart()
             .cmp(&b.qstart())
-            .then_with(|| b.hilen.cmp(&a.hilen))
+            .then_with(|| b.hilen().cmp(&a.hilen()))
             .then_with(|| b.len().cmp(&a.len()))
             .then_with(|| a.matcher_order().cmp(&b.matcher_order()))
     });
@@ -344,18 +345,15 @@ pub fn filter_overlapping_matches(
     (matches, discarded)
 }
 
-fn match_to_qspan(m: &LicenseMatch) -> Span {
-    if let Some(positions) = &m.qspan_positions
-        && !positions.is_empty()
-    {
-        return Span::from_iterator(positions.iter().copied());
+fn match_to_qspan(m: &LicenseMatch) -> PositionSpan {
+    let effective = m.effective_span();
+    if !effective.is_empty() {
+        return effective;
     }
-
     if m.start_token == 0 && m.end_token == 0 {
-        return Span::from_range(m.start_line..m.end_line + 1);
+        return PositionSpan::range(m.start_line, m.end_line + 1);
     }
-
-    Span::from_range(m.start_token..m.end_token)
+    effective
 }
 
 /// Restore non-overlapping discarded matches.
@@ -374,9 +372,10 @@ pub fn restore_non_overlapping(
     matches: &[LicenseMatch],
     discarded: Vec<LicenseMatch>,
 ) -> (Vec<LicenseMatch>, Vec<LicenseMatch>) {
-    let all_matched_qspans = matches
-        .iter()
-        .fold(Span::new(), |acc, m| acc.union_span(&match_to_qspan(m)));
+    let mut all_matched_positions = PositionSet::new();
+    for m in matches {
+        all_matched_positions.extend_from_span(&match_to_qspan(m));
+    }
 
     let mut to_keep = Vec::new();
     let mut to_discard = Vec::new();
@@ -384,8 +383,8 @@ pub fn restore_non_overlapping(
     let merged_discarded = merge_overlapping_matches(&discarded);
 
     for disc in merged_discarded {
-        let disc_qspan = match_to_qspan(&disc);
-        if !disc_qspan.intersects(&all_matched_qspans) {
+        let disc_span = match_to_qspan(&disc);
+        if !all_matched_positions.overlaps_span(&disc_span) {
             to_keep.push(disc);
         } else {
             to_discard.push(disc);
@@ -398,6 +397,7 @@ pub fn restore_non_overlapping(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::license_detection::models::position_span::PositionSpan;
 
     fn parse_rule_id(rule_identifier: &str) -> Option<usize> {
         let trimmed = rule_identifier.trim();
@@ -432,7 +432,6 @@ mod tests {
             score,
             matched_length: matched_len,
             rule_length: rule_len,
-            matched_token_positions: None,
             match_coverage: coverage,
             rule_relevance: relevance,
             rule_identifier: rule_identifier.to_string(),
@@ -441,11 +440,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -479,12 +477,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            matched_token_positions: None,
-            hilen: matched_length / 2,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::range(start_token, end_token),
+            ispan: PositionSpan::range(0, matched_length),
+            hispan: PositionSpan::range(0, matched_length / 2),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -521,12 +517,13 @@ mod tests {
 
     #[test]
     fn test_filter_contained_matches_different_rules() {
-        let mut matches = vec![
-            create_test_match("#1", 1, 20, 0.9, 90.0, 100),
-            create_test_match("#2", 5, 15, 0.85, 85.0, 100),
-        ];
-        matches[0].matched_length = 200;
-        matches[1].matched_length = 100;
+        let mut m1 = create_test_match("#1", 1, 20, 0.9, 90.0, 100);
+        m1.matched_length = 200;
+        m1.qspan = PositionSpan::range(1, 21);
+        let mut m2 = create_test_match("#2", 5, 15, 0.85, 85.0, 100);
+        m2.matched_length = 100;
+        m2.qspan = PositionSpan::range(5, 16);
+        let matches = vec![m1, m2];
 
         let (filtered, _) = filter_contained_matches(&matches);
 
@@ -536,10 +533,11 @@ mod tests {
 
     #[test]
     fn test_filter_contained_matches_no_containment() {
-        let matches = vec![
-            create_test_match("#1", 1, 10, 0.9, 90.0, 100),
-            create_test_match("#1", 15, 25, 0.85, 85.0, 100),
-        ];
+        let mut m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
+        m1.qspan = PositionSpan::range(1, 11);
+        let mut m2 = create_test_match("#1", 15, 25, 0.85, 85.0, 100);
+        m2.qspan = PositionSpan::range(15, 26);
+        let matches = vec![m1, m2];
 
         let (filtered, _) = filter_contained_matches(&matches);
 
@@ -564,8 +562,10 @@ mod tests {
     fn test_filter_contained_matches_partial_overlap_no_containment() {
         let mut m1 = create_test_match("#1", 1, 20, 0.9, 90.0, 100);
         m1.matched_length = 150;
+        m1.qspan = PositionSpan::range(1, 21);
         let mut m2 = create_test_match("#2", 15, 30, 0.85, 85.0, 100);
         m2.matched_length = 100;
+        m2.qspan = PositionSpan::range(15, 31);
         let matches = vec![m1, m2];
 
         let (filtered, _) = filter_contained_matches(&matches);
@@ -775,8 +775,10 @@ mod tests {
         let index = LicenseIndex::with_legalese_count(10);
         let mut m1 = create_test_match("#1", 1, 100, 0.9, 90.0, 100);
         m1.matched_length = 100;
+        m1.qspan = PositionSpan::range(1, 101);
         let mut m2 = create_test_match("#2", 5, 100, 0.85, 85.0, 100);
         m2.matched_length = 10;
+        m2.qspan = PositionSpan::range(5, 101);
 
         let matches = vec![m1, m2];
 
@@ -792,8 +794,10 @@ mod tests {
         let index = LicenseIndex::with_legalese_count(10);
         let mut m1 = create_test_match("#1", 1, 100, 0.9, 90.0, 100);
         m1.matched_length = 100;
+        m1.qspan = PositionSpan::range(1, 101);
         let mut m2 = create_test_match("#2", 30, 100, 0.85, 85.0, 100);
         m2.matched_length = 10;
+        m2.qspan = PositionSpan::range(30, 101);
 
         let matches = vec![m1, m2];
 
@@ -882,8 +886,10 @@ mod tests {
 
         let mut outer = create_test_match("#1", 1, 100, 0.9, 90.0, 100);
         outer.matched_length = 500;
+        outer.qspan = PositionSpan::range(1, 101);
         let mut inner = create_test_match("#2", 20, 30, 0.85, 85.0, 100);
         inner.matched_length = 50;
+        inner.qspan = PositionSpan::range(20, 31);
 
         let matches = vec![outer, inner];
 
@@ -896,8 +902,10 @@ mod tests {
 
     #[test]
     fn test_calculate_overlap_no_overlap() {
-        let m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
-        let m2 = create_test_match("#2", 20, 30, 0.85, 85.0, 100);
+        let mut m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
+        m1.qspan = PositionSpan::range(1, 11);
+        let mut m2 = create_test_match("#2", 20, 30, 0.85, 85.0, 100);
+        m2.qspan = PositionSpan::range(20, 31);
 
         assert_eq!(m1.qoverlap(&m2), 0);
         assert_eq!(m2.qoverlap(&m1), 0);
@@ -905,8 +913,10 @@ mod tests {
 
     #[test]
     fn test_calculate_overlap_partial() {
-        let m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
-        let m2 = create_test_match("#2", 5, 15, 0.85, 85.0, 100);
+        let mut m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
+        m1.qspan = PositionSpan::range(1, 11);
+        let mut m2 = create_test_match("#2", 5, 15, 0.85, 85.0, 100);
+        m2.qspan = PositionSpan::range(5, 16);
 
         assert_eq!(m1.qoverlap(&m2), 6);
         assert_eq!(m2.qoverlap(&m1), 6);
@@ -914,8 +924,10 @@ mod tests {
 
     #[test]
     fn test_calculate_overlap_contained() {
-        let m1 = create_test_match("#1", 1, 20, 0.9, 90.0, 100);
-        let m2 = create_test_match("#2", 5, 15, 0.85, 85.0, 100);
+        let mut m1 = create_test_match("#1", 1, 20, 0.9, 90.0, 100);
+        m1.qspan = PositionSpan::range(1, 21);
+        let mut m2 = create_test_match("#2", 5, 15, 0.85, 85.0, 100);
+        m2.qspan = PositionSpan::range(5, 16);
 
         assert_eq!(m1.qoverlap(&m2), 11);
         assert_eq!(m2.qoverlap(&m1), 11);
@@ -923,16 +935,20 @@ mod tests {
 
     #[test]
     fn test_calculate_overlap_identical() {
-        let m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
-        let m2 = create_test_match("#2", 1, 10, 0.85, 85.0, 100);
+        let mut m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
+        m1.qspan = PositionSpan::range(1, 11);
+        let mut m2 = create_test_match("#2", 1, 10, 0.85, 85.0, 100);
+        m2.qspan = PositionSpan::range(1, 11);
 
         assert_eq!(m1.qoverlap(&m2), 10);
     }
 
     #[test]
     fn test_calculate_overlap_adjacent() {
-        let m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
-        let m2 = create_test_match("#2", 11, 20, 0.85, 85.0, 100);
+        let mut m1 = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
+        m1.qspan = PositionSpan::range(1, 11);
+        let mut m2 = create_test_match("#2", 11, 20, 0.85, 85.0, 100);
+        m2.qspan = PositionSpan::range(11, 21);
 
         assert_eq!(m1.qoverlap(&m2), 0);
     }
@@ -1054,9 +1070,13 @@ mod tests {
         let mut m1 = create_test_match("#2", 50, 60, 0.85, 100.0, 100);
         m1.rule_length = 100;
         m1.rule_start_token = 0;
+        m1.qspan = PositionSpan::range(50, 61);
+        m1.ispan = PositionSpan::range(0, 11);
         let mut m2 = create_test_match("#2", 55, 65, 0.8, 100.0, 100);
         m2.rule_length = 100;
         m2.rule_start_token = 5;
+        m2.qspan = PositionSpan::range(55, 66);
+        m2.ispan = PositionSpan::range(5, 16);
 
         let discarded = vec![m1, m2];
 
@@ -1102,17 +1122,17 @@ mod tests {
         m1.start_token = 5;
         m1.end_token = 77;
         m1.matched_length = 48;
-        m1.hilen = 14;
+        m1.hispan = PositionSpan::range(0, 14);
         m1.matcher = crate::license_detection::models::MatcherKind::Seq;
-        m1.qspan_positions = Some((5..77).collect());
+        m1.qspan = PositionSpan::range(5, 77);
 
         let mut m2 = create_test_match("gfdl-1.1-plus_5.RULE", 1, 10, 68.6, 68.6, 100);
         m2.start_token = 5;
         m2.end_token = 77;
         m2.matched_length = 48;
-        m2.hilen = 14;
+        m2.hispan = PositionSpan::range(0, 14);
         m2.matcher = crate::license_detection::models::MatcherKind::Seq;
-        m2.qspan_positions = Some((5..77).collect());
+        m2.qspan = PositionSpan::range(5, 77);
 
         let matches = vec![m1, m2];
         let (kept, _discarded) = filter_overlapping_matches(matches, &index);

@@ -2,7 +2,9 @@
 mod tests {
     use crate::license_detection::index::LicenseIndex;
     use crate::license_detection::index::dictionary::tid;
+    use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::models::{License, LicenseMatch, MatcherKind, Rule, RuleKind};
+    use crate::license_detection::position_set::PositionSet;
     use crate::models::Match as OutputMatch;
     use std::collections::HashMap;
 
@@ -99,7 +101,6 @@ mod tests {
             score: 0.95,
             matched_length: 100,
             rule_length: 100,
-            matched_token_positions: None,
             match_coverage: 95.0,
             rule_relevance: 100,
             rule_identifier: "mit.LICENSE".to_string(),
@@ -108,11 +109,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: RuleKind::None,
             is_from_license: false,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::range(0, 100),
+            ispan: PositionSpan::range(0, 100),
+            hispan: PositionSpan::range(0, 50),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -526,12 +526,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            matched_token_positions: None,
-            hilen: 0,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         };
@@ -590,48 +588,6 @@ mod tests {
     }
 
     #[test]
-    fn test_license_match_deserialization() {
-        let json = r#"{
-            "license_expression": "apache-2.0",
-            "license_expression_spdx": "Apache-2.0",
-            "from_file": "LICENSE",
-            "start_line": 10,
-            "end_line": 20,
-            "matcher": "1-hash",
-            "score": 0.99,
-            "matched_length": 500,
-            "match_coverage": 99.0,
-            "rule_relevance": 95,
-            "rule_identifier": "apache-2.0.LICENSE",
-            "rule_url": "https://example.org/apache-2.0",
-            "matched_text": "Apache License",
-            "referenced_filenames": ["NOTICE"],
-            "is_license_intro": false,
-            "is_license_clue": false
-        }"#;
-
-        let match_result: LicenseMatch = serde_json::from_str(json).unwrap();
-
-        assert_eq!(match_result.license_expression, "apache-2.0");
-        assert_eq!(match_result.start_line, 10);
-        assert_eq!(match_result.end_line, 20);
-        assert!((match_result.score - 0.99).abs() < 0.001);
-        assert_eq!(
-            match_result.referenced_filenames,
-            Some(vec!["NOTICE".to_string()])
-        );
-    }
-
-    #[test]
-    fn test_license_match_roundtrip_serialization() {
-        let original = create_license_match();
-        let json = serde_json::to_string(&original).unwrap();
-        let deserialized: LicenseMatch = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(original, deserialized);
-    }
-
-    #[test]
     fn test_output_match_serializes_null_rule_url() {
         let output_match = OutputMatch {
             license_expression: "mit".to_string(),
@@ -672,7 +628,6 @@ mod tests {
             score: 0.95,
             matched_length: 100,
             rule_length: 100,
-            matched_token_positions: None,
             match_coverage: 95.0,
             rule_relevance: 100,
             rule_identifier: "mit.LICENSE".to_string(),
@@ -681,11 +636,10 @@ mod tests {
             referenced_filenames: Some(vec!["LICENSE".to_string(), "COPYING".to_string()]),
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         };
@@ -705,7 +659,7 @@ mod tests {
     #[test]
     fn test_len_non_contiguous() {
         let mut match_result = create_license_match();
-        match_result.matched_token_positions = Some(vec![0, 2, 5, 10]);
+        match_result.qspan = PositionSpan::from_positions(vec![0, 2, 5, 10]);
         assert_eq!(match_result.len(), 4);
     }
 
@@ -714,12 +668,13 @@ mod tests {
         let mut match_result = create_license_match();
         match_result.start_token = 0;
         match_result.end_token = 0;
+        match_result.qspan = PositionSpan::empty();
         assert_eq!(match_result.len(), 0);
     }
 
     #[test]
     fn test_qdensity_contiguous() {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
         let index = create_test_index();
         let match_result = create_license_match();
         let query = crate::license_detection::query::Query {
@@ -728,9 +683,9 @@ mod tests {
             line_by_pos: vec![],
             unknowns_by_pos: HashMap::new(),
             stopwords_by_pos: HashMap::new(),
-            shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            shorts_and_digits_pos: PositionSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -741,19 +696,19 @@ mod tests {
 
     #[test]
     fn test_qdensity_sparse() {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
         let index = create_test_index();
         let mut match_result = create_license_match();
-        match_result.matched_token_positions = Some(vec![0, 10]);
+        match_result.qspan = PositionSpan::from_positions(vec![0, 10]);
         let query = crate::license_detection::query::Query {
             text: String::new(),
             tokens: vec![],
             line_by_pos: vec![],
             unknowns_by_pos: HashMap::new(),
             stopwords_by_pos: HashMap::new(),
-            shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            shorts_and_digits_pos: PositionSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -765,20 +720,21 @@ mod tests {
 
     #[test]
     fn test_qdensity_zero() {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
         let index = create_test_index();
         let mut match_result = create_license_match();
         match_result.start_token = 0;
         match_result.end_token = 0;
+        match_result.qspan = PositionSpan::empty();
         let query = crate::license_detection::query::Query {
             text: String::new(),
             tokens: vec![],
             line_by_pos: vec![],
             unknowns_by_pos: HashMap::new(),
             stopwords_by_pos: HashMap::new(),
-            shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            shorts_and_digits_pos: PositionSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -789,12 +745,12 @@ mod tests {
 
     #[test]
     fn test_qdensity_with_unknowns() {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
         let index = create_test_index();
         let mut match_result = create_license_match();
         match_result.start_token = 0;
         match_result.end_token = 10;
-        match_result.matched_token_positions = Some(vec![0, 5, 9]);
+        match_result.qspan = PositionSpan::from_positions(vec![0, 5, 9]);
         let mut unknowns_by_pos = HashMap::new();
         unknowns_by_pos.insert(Some(0), 2);
         unknowns_by_pos.insert(Some(5), 3);
@@ -804,9 +760,9 @@ mod tests {
             line_by_pos: vec![],
             unknowns_by_pos,
             stopwords_by_pos: HashMap::new(),
-            shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            shorts_and_digits_pos: PositionSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -818,10 +774,10 @@ mod tests {
 
     #[test]
     fn test_qmagnitude_non_contiguous() {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
         let index = create_test_index();
         let mut match_result = create_license_match();
-        match_result.qspan_positions = Some(vec![0, 5, 10]);
+        match_result.qspan = PositionSpan::from_positions(vec![0, 5, 10]);
         let mut unknowns_by_pos = HashMap::new();
         unknowns_by_pos.insert(Some(0), 2);
         unknowns_by_pos.insert(Some(5), 3);
@@ -831,9 +787,9 @@ mod tests {
             line_by_pos: vec![],
             unknowns_by_pos,
             stopwords_by_pos: HashMap::new(),
-            shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            shorts_and_digits_pos: PositionSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -845,10 +801,10 @@ mod tests {
 
     #[test]
     fn test_qmagnitude_excludes_end_position() {
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
         let index = create_test_index();
         let mut match_result = create_license_match();
-        match_result.qspan_positions = Some(vec![0, 5, 10]);
+        match_result.qspan = PositionSpan::from_positions(vec![0, 5, 10]);
         let mut unknowns_by_pos = HashMap::new();
         unknowns_by_pos.insert(Some(10), 100);
         let query = crate::license_detection::query::Query {
@@ -857,9 +813,9 @@ mod tests {
             line_by_pos: vec![],
             unknowns_by_pos,
             stopwords_by_pos: HashMap::new(),
-            shorts_and_digits_pos: HashSet::new(),
-            high_matchables: bit_set::BitSet::new(),
-            low_matchables: bit_set::BitSet::new(),
+            shorts_and_digits_pos: PositionSet::new(),
+            high_matchables: PositionSet::new(),
+            low_matchables: PositionSet::new(),
             is_binary: false,
             query_run_ranges: vec![],
             spdx_lines: vec![],
@@ -878,7 +834,7 @@ mod tests {
     fn test_idensity_sparse_ispan() {
         let mut match_result = create_license_match();
         match_result.matched_length = 2;
-        match_result.ispan_positions = Some(vec![0, 10]);
+        match_result.ispan = PositionSpan::from_positions(vec![0, 10]);
         let expected = 2.0 / 11.0;
         assert!((match_result.idensity() - expected).abs() < 0.001);
     }
@@ -889,7 +845,7 @@ mod tests {
         match_result.start_token = 0;
         match_result.end_token = 20;
         match_result.matched_length = 5;
-        match_result.ispan_positions = Some(vec![0, 2, 4, 6, 8]);
+        match_result.ispan = PositionSpan::from_positions(vec![0, 2, 4, 6, 8]);
         assert!((match_result.idensity() - (5.0 / 9.0)).abs() < 0.001);
     }
 
@@ -897,6 +853,7 @@ mod tests {
     fn test_idensity_zero() {
         let mut match_result = create_license_match();
         match_result.matched_length = 0;
+        match_result.ispan = PositionSpan::empty();
         assert_eq!(match_result.idensity(), 0.0);
     }
 
@@ -922,6 +879,7 @@ mod tests {
             end_line: 20,
             start_token: 1,
             end_token: 20,
+            qspan: PositionSpan::range(1, 20),
             ..create_license_match()
         };
         let inner = LicenseMatch {
@@ -929,6 +887,7 @@ mod tests {
             end_line: 15,
             start_token: 1,
             end_token: 15,
+            qspan: PositionSpan::range(1, 15),
             ..create_license_match()
         };
         assert!(outer.surround(&inner));
@@ -941,6 +900,7 @@ mod tests {
             end_line: 20,
             start_token: 1,
             end_token: 20,
+            qspan: PositionSpan::range(1, 20),
             ..create_license_match()
         };
         let inner = LicenseMatch {
@@ -948,6 +908,7 @@ mod tests {
             end_line: 20,
             start_token: 5,
             end_token: 20,
+            qspan: PositionSpan::range(5, 20),
             ..create_license_match()
         };
         assert!(outer.surround(&inner));
@@ -960,6 +921,7 @@ mod tests {
             end_line: 15,
             start_token: 5,
             end_token: 15,
+            qspan: PositionSpan::range(5, 15),
             ..create_license_match()
         };
         let inner = LicenseMatch {
@@ -967,6 +929,7 @@ mod tests {
             end_line: 20,
             start_token: 1,
             end_token: 20,
+            qspan: PositionSpan::range(1, 20),
             ..create_license_match()
         };
         assert!(!outer.surround(&inner));
@@ -979,6 +942,7 @@ mod tests {
             end_line: 10,
             start_token: 1,
             end_token: 10,
+            qspan: PositionSpan::range(1, 10),
             ..create_license_match()
         };
         let second = LicenseMatch {
@@ -986,6 +950,7 @@ mod tests {
             end_line: 20,
             start_token: 11,
             end_token: 20,
+            qspan: PositionSpan::range(11, 20),
             ..create_license_match()
         };
         assert!(!first.surround(&second));
@@ -997,11 +962,13 @@ mod tests {
         let outer = LicenseMatch {
             start_token: 0,
             end_token: 20,
+            qspan: PositionSpan::range(0, 20),
             ..create_license_match()
         };
         let inner = LicenseMatch {
             start_token: 5,
             end_token: 15,
+            qspan: PositionSpan::range(5, 15),
             ..create_license_match()
         };
         assert!(outer.qcontains(&inner));
@@ -1013,11 +980,13 @@ mod tests {
         let a = LicenseMatch {
             start_token: 0,
             end_token: 10,
+            qspan: PositionSpan::range(0, 10),
             ..create_license_match()
         };
         let b = LicenseMatch {
             start_token: 0,
             end_token: 10,
+            qspan: PositionSpan::range(0, 10),
             ..create_license_match()
         };
         assert!(a.qcontains(&b));
@@ -1029,11 +998,13 @@ mod tests {
         let a = LicenseMatch {
             start_token: 0,
             end_token: 10,
+            qspan: PositionSpan::range(0, 10),
             ..create_license_match()
         };
         let b = LicenseMatch {
             start_token: 5,
             end_token: 15,
+            qspan: PositionSpan::range(5, 15),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1045,11 +1016,13 @@ mod tests {
         let a = LicenseMatch {
             start_token: 0,
             end_token: 5,
+            qspan: PositionSpan::range(0, 5),
             ..create_license_match()
         };
         let b = LicenseMatch {
             start_token: 10,
             end_token: 15,
+            qspan: PositionSpan::range(10, 15),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1061,11 +1034,13 @@ mod tests {
         let a = LicenseMatch {
             start_token: 0,
             end_token: 10,
+            qspan: PositionSpan::range(0, 10),
             ..create_license_match()
         };
         let b = LicenseMatch {
             start_token: 0,
             end_token: 15,
+            qspan: PositionSpan::range(0, 15),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1077,11 +1052,13 @@ mod tests {
         let a = LicenseMatch {
             start_token: 5,
             end_token: 15,
+            qspan: PositionSpan::range(5, 15),
             ..create_license_match()
         };
         let b = LicenseMatch {
             start_token: 0,
             end_token: 15,
+            qspan: PositionSpan::range(0, 15),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1095,6 +1072,7 @@ mod tests {
             end_token: 0,
             start_line: 1,
             end_line: 20,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         let inner = LicenseMatch {
@@ -1102,6 +1080,7 @@ mod tests {
             end_token: 0,
             start_line: 5,
             end_line: 15,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         assert!(outer.qcontains(&inner));
@@ -1115,6 +1094,7 @@ mod tests {
             end_token: 0,
             start_line: 1,
             end_line: 10,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         let b = LicenseMatch {
@@ -1122,6 +1102,7 @@ mod tests {
             end_token: 0,
             start_line: 1,
             end_line: 10,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         assert!(a.qcontains(&b));
@@ -1135,6 +1116,7 @@ mod tests {
             end_token: 0,
             start_line: 1,
             end_line: 10,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         let b = LicenseMatch {
@@ -1142,6 +1124,7 @@ mod tests {
             end_token: 0,
             start_line: 5,
             end_line: 15,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1155,6 +1138,7 @@ mod tests {
             end_token: 0,
             start_line: 1,
             end_line: 5,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         let b = LicenseMatch {
@@ -1162,6 +1146,7 @@ mod tests {
             end_token: 0,
             start_line: 10,
             end_line: 15,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1175,6 +1160,7 @@ mod tests {
             end_token: 0,
             start_line: 1,
             end_line: 20,
+            qspan: PositionSpan::empty(),
             ..create_license_match()
         };
         let b = LicenseMatch {
@@ -1182,6 +1168,7 @@ mod tests {
             end_token: 10,
             start_line: 5,
             end_line: 15,
+            qspan: PositionSpan::range(5, 10),
             ..create_license_match()
         };
         assert!(!a.qcontains(&b));
@@ -1192,9 +1179,11 @@ mod tests {
         let mut a = create_license_match();
         a.start_token = 0;
         a.end_token = 10;
+        a.qspan = PositionSpan::range(0, 10);
         let mut b = create_license_match();
         b.start_token = 5;
         b.end_token = 15;
+        b.qspan = PositionSpan::range(5, 15);
         assert_eq!(a.qdistance_to(&b), 0);
         assert_eq!(b.qdistance_to(&a), 0);
     }
@@ -1204,9 +1193,11 @@ mod tests {
         let mut a = create_license_match();
         a.start_token = 0;
         a.end_token = 10;
+        a.qspan = PositionSpan::range(0, 10);
         let mut b = create_license_match();
         b.start_token = 10;
         b.end_token = 20;
+        b.qspan = PositionSpan::range(10, 20);
         assert_eq!(a.qdistance_to(&b), 1);
         assert_eq!(b.qdistance_to(&a), 1);
     }
@@ -1216,9 +1207,11 @@ mod tests {
         let mut a = create_license_match();
         a.start_token = 0;
         a.end_token = 5;
+        a.qspan = PositionSpan::range(0, 5);
         let mut b = create_license_match();
         b.start_token = 15;
         b.end_token = 20;
+        b.qspan = PositionSpan::range(15, 20);
         assert_eq!(a.qdistance_to(&b), 11);
         assert_eq!(b.qdistance_to(&a), 11);
     }
@@ -1226,12 +1219,12 @@ mod tests {
     #[test]
     fn test_qdistance_to_gapped_spans_matches_python_semantics() {
         let mut a = create_license_match();
-        a.qspan_positions = Some(vec![55]);
+        a.qspan = PositionSpan::from_positions(vec![55]);
         a.start_token = 55;
         a.end_token = 56;
 
         let mut b = create_license_match();
-        b.qspan_positions = Some(vec![57, 58]);
+        b.qspan = PositionSpan::from_positions(vec![57, 58]);
         b.start_token = 57;
         b.end_token = 59;
 
@@ -1260,5 +1253,126 @@ mod tests {
 
         m.license_expression = "apache-2.0".to_string();
         assert!(!m.has_unknown());
+    }
+
+    #[test]
+    fn test_effective_span_fallback_qspan_bounds() {
+        let mut m = create_license_match();
+        m.start_token = 10;
+        m.end_token = 20;
+        m.qspan = PositionSpan::empty();
+
+        let bounds = m.qspan_bounds();
+        assert_eq!(bounds, (10, 20));
+    }
+
+    #[test]
+    fn test_effective_span_fallback_ispan_bounds() {
+        let mut m = create_license_match();
+        m.rule_start_token = 5;
+        m.matched_length = 30;
+        m.ispan = PositionSpan::empty();
+
+        let bounds = m.ispan_bounds();
+        assert_eq!(bounds, (5, 35));
+    }
+
+    #[test]
+    fn test_effective_span_fallback_qoverlap_lines() {
+        let a = LicenseMatch {
+            start_token: 0,
+            end_token: 0,
+            start_line: 1,
+            end_line: 10,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+        let b = LicenseMatch {
+            start_token: 0,
+            end_token: 0,
+            start_line: 5,
+            end_line: 15,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+
+        assert_eq!(a.qoverlap(&b), 6);
+        assert_eq!(b.qoverlap(&a), 6);
+    }
+
+    #[test]
+    fn test_effective_span_fallback_qspan_eq_lines() {
+        let a = LicenseMatch {
+            start_token: 0,
+            end_token: 0,
+            start_line: 1,
+            end_line: 10,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+        let b = LicenseMatch {
+            start_token: 0,
+            end_token: 0,
+            start_line: 1,
+            end_line: 10,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+
+        assert!(a.qspan_eq(&b));
+    }
+
+    #[test]
+    fn test_effective_span_fallback_qspan_eq_lines_differ() {
+        let a = LicenseMatch {
+            start_token: 0,
+            end_token: 0,
+            start_line: 1,
+            end_line: 10,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+        let b = LicenseMatch {
+            start_token: 0,
+            end_token: 0,
+            start_line: 1,
+            end_line: 20,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+
+        assert!(!a.qspan_eq(&b));
+    }
+
+    #[test]
+    fn test_effective_span_fallback_qoverlap_with_tokens_vs_empty() {
+        let a = LicenseMatch {
+            start_token: 10,
+            end_token: 20,
+            qspan: PositionSpan::empty(),
+            ..create_license_match()
+        };
+        let b = LicenseMatch {
+            start_token: 15,
+            end_token: 25,
+            qspan: PositionSpan::range(15, 25),
+            ..create_license_match()
+        };
+
+        let overlap_ab: usize = b.qspan.iter().filter(|&p| (10..20).contains(&p)).count();
+        let overlap_ba: usize = (10..20).filter(|p| (15..25).contains(p)).count();
+        assert_eq!(a.qoverlap(&b), overlap_ab);
+        assert_eq!(b.qoverlap(&a), overlap_ba);
+        assert_eq!(overlap_ab, overlap_ba);
+    }
+
+    #[test]
+    fn test_effective_span_nonempty_preferred_over_tokens() {
+        let mut m = create_license_match();
+        m.start_token = 100;
+        m.end_token = 200;
+        m.qspan = PositionSpan::range(10, 20);
+
+        assert_eq!(m.qspan_bounds(), (10, 20));
     }
 }

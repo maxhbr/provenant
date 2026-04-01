@@ -3,6 +3,7 @@
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::TokenId;
 use crate::license_detection::models::LicenseMatch;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::query::QueryRun;
 use bit_set::BitSet;
 use std::collections::HashMap;
@@ -238,7 +239,7 @@ pub fn seq_match_with_candidates(
 
             let matchables: BitSet = query_run
                 .matchables(true)
-                .into_iter()
+                .iter()
                 .map(|pos| pos - query_run.start)
                 .collect();
 
@@ -282,18 +283,9 @@ pub fn seq_match_with_candidates(
                         continue;
                     }
 
-                    let qspan_positions: Vec<usize> = (qpos..qpos + mlen)
-                        .map(|pos| pos + query_run.start)
-                        .collect();
-                    let ispan_positions: Vec<usize> = (ipos..ipos + mlen).collect();
-                    let hispan_positions: Vec<usize> = (ipos..ipos + mlen)
-                        .filter(|&p| {
-                            rule_tokens
-                                .get(p)
-                                .is_some_and(|t| t.as_usize() < len_legalese)
-                        })
-                        .collect();
-                    let hispan_count = hispan_positions.len();
+                    let qspan =
+                        PositionSpan::range(qpos + query_run.start, qpos + mlen + query_run.start);
+                    let ispan = PositionSpan::range(ipos, ipos + mlen);
 
                     let qend = qpos + mlen - 1;
                     let abs_qpos = qpos + query_run.start;
@@ -330,12 +322,14 @@ pub fn seq_match_with_candidates(
                         referenced_filenames: candidate.rule.referenced_filenames.clone(),
                         rule_kind: candidate.rule.kind(),
                         is_from_license: candidate.rule.is_from_license,
-                        matched_token_positions: None,
-                        hilen: hispan_count,
                         rule_start_token: ipos,
-                        qspan_positions: Some(qspan_positions),
-                        ispan_positions: Some(ispan_positions),
-                        hispan_positions: Some(hispan_positions),
+                        qspan,
+                        ispan,
+                        hispan: PositionSpan::from_positions((ipos..ipos + mlen).filter(|&p| {
+                            rule_tokens
+                                .get(p)
+                                .is_some_and(|t| t.as_usize() < len_legalese)
+                        })),
                         candidate_resemblance: candidate.score_vec_full.resemblance,
                         candidate_containment: candidate.score_vec_full.containment,
                     };

@@ -7,9 +7,9 @@ use sha1::{Digest, Sha1};
 
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::{TokenId, TokenKind};
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
 use crate::license_detection::query::QueryRun;
-use crate::license_detection::spans::Span;
 
 pub const MATCH_HASH: MatcherKind = MatcherKind::Hash;
 
@@ -57,17 +57,11 @@ pub fn hash_match(index: &LicenseIndex, query_run: &QueryRun) -> Vec<LicenseMatc
         let rule = &index.rules_by_rid[rid];
         let itokens = &index.tids_by_rid[rid];
 
-        let _qspan =
-            Span::from_range(query_run.start..query_run.end.map_or(query_run.start, |e| e + 1));
         let rule_length = rule.tokens.len();
-        let _ispan = Span::from_range(0..rule_length);
 
         let end = query_run.end.unwrap_or(query_run.start);
-        let qspan_positions: Vec<usize> = (query_run.start..=end).collect();
-        let ispan_positions: Vec<usize> = (0..rule_length).collect();
-        let hispan_positions: Vec<usize> = (0..rule_length)
-            .filter(|&p| index.dictionary.token_kind(itokens[p]) == TokenKind::Legalese)
-            .collect();
+        let qspan = PositionSpan::range(query_run.start, end + 1);
+        let ispan = PositionSpan::range(0, rule_length);
 
         let matched_length = query_run.tokens().len();
         let match_coverage = 100.0;
@@ -103,12 +97,13 @@ pub fn hash_match(index: &LicenseIndex, query_run: &QueryRun) -> Vec<LicenseMatc
             referenced_filenames: rule.referenced_filenames.clone(),
             rule_kind: rule.kind(),
             is_from_license: rule.is_from_license,
-            matched_token_positions: None,
-            hilen: hispan_positions.len(),
             rule_start_token: 0,
-            qspan_positions: Some(qspan_positions),
-            ispan_positions: Some(ispan_positions),
-            hispan_positions: Some(hispan_positions),
+            qspan,
+            ispan,
+            hispan: PositionSpan::from_positions(
+                (0..rule_length)
+                    .filter(|&p| index.dictionary.token_kind(itokens[p]) == TokenKind::Legalese),
+            ),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         };

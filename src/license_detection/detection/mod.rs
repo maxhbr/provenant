@@ -503,8 +503,7 @@ fn license_keys_from_expression(expression: &str) -> Vec<String> {
 mod tests {
     use super::identifier::compute_detection_identifier;
     use super::*;
-    use crate::license_detection::models::License;
-    use crate::license_detection::models::LicenseMatch;
+    use crate::license_detection::models::{License, LicenseMatch, PositionSpan};
     use crate::license_detection::spdx_mapping::build_spdx_mapping;
 
     fn create_test_match(
@@ -534,12 +533,10 @@ mod tests {
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
             rule_length: 100,
-            matched_token_positions: None,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }

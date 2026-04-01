@@ -19,7 +19,6 @@ pub mod models;
 pub mod query;
 pub mod rules;
 pub mod seq_match;
-pub mod spans;
 pub mod spdx_lid;
 pub mod spdx_mapping;
 #[cfg(test)]
@@ -117,8 +116,8 @@ fn truncate_detection_text(clean_text: &str) -> &str {
     &clean_text[..boundary]
 }
 
-fn query_span_for_match(m: &LicenseMatch) -> Option<query::PositionSpan> {
-    (m.end_token > m.start_token).then(|| query::PositionSpan::new(m.start_token, m.end_token - 1))
+fn query_span_for_match(m: &LicenseMatch) -> Option<models::PositionSpan> {
+    (m.end_token > m.start_token).then(|| models::PositionSpan::new(m.start_token, m.end_token))
 }
 
 fn has_full_match_coverage(m: &LicenseMatch) -> bool {
@@ -135,20 +134,15 @@ fn is_redundant_same_expression_seq_container(
         return false;
     }
 
-    let container_qspan_set: PositionSet = container.qspan().into_iter().collect();
+    let container_qspan_set = container.qspan_set();
 
-    let mut contained: Vec<(&LicenseMatch, Vec<usize>)> = candidate_contained_matches
+    let mut contained: Vec<&LicenseMatch> = candidate_contained_matches
         .iter()
-        .filter_map(|m| {
-            if m.matcher == MatcherKind::Aho
+        .filter(|m| {
+            m.matcher == MatcherKind::Aho
                 && has_full_match_coverage(m)
                 && m.license_expression == container.license_expression
                 && m.overlaps_with(&container_qspan_set)
-            {
-                Some((m, m.qspan()))
-            } else {
-                None
-            }
         })
         .collect();
 
@@ -156,21 +150,17 @@ fn is_redundant_same_expression_seq_container(
         return false;
     }
 
-    let material_children = contained
-        .iter()
-        .filter(|(m, _)| m.matched_length > 1)
-        .count();
+    let material_children = contained.iter().filter(|m| m.matched_length > 1).count();
     if material_children < 2 {
         return false;
     }
 
-    contained.sort_by_key(|(m, _)| m.qspan_bounds());
+    contained.sort_by_key(|m| m.qspan_bounds());
 
     let mut child_union = PositionSet::new();
-    for (_, qspan) in &contained {
-        for &pos in qspan {
-            child_union.insert(pos);
-        }
+    for m in &contained {
+        let span = m.effective_span();
+        child_union.extend_from_span(&span);
     }
 
     let container_only_positions = container_qspan_set.difference(&child_union);
@@ -178,8 +168,8 @@ fn is_redundant_same_expression_seq_container(
 
     let mut bridge_positions = BitSet::new();
     for pair in contained.windows(2) {
-        let (_, previous_end) = pair[0].0.qspan_bounds();
-        let (next_start, _) = pair[1].0.qspan_bounds();
+        let (_, previous_end) = pair[0].qspan_bounds();
+        let (next_start, _) = pair[1].qspan_bounds();
 
         if next_start < previous_end {
             return false;
@@ -208,12 +198,12 @@ fn is_redundant_same_expression_seq_container(
     {
         let earliest_child = contained
             .iter()
-            .map(|(m, _)| m.qspan_bounds().0)
+            .map(|m| m.qspan_bounds().0)
             .min()
             .unwrap_or(usize::MAX);
         let latest_child = contained
             .iter()
-            .map(|(m, _)| m.qspan_bounds().1.saturating_sub(1))
+            .map(|m| m.qspan_bounds().1.saturating_sub(1))
             .max()
             .unwrap_or(0);
 
@@ -258,20 +248,15 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
         return false;
     }
 
-    let container_qspan_set: PositionSet = container.qspan().into_iter().collect();
+    let container_qspan_set = container.qspan_set();
 
-    let children: Vec<(&LicenseMatch, Vec<usize>)> = candidate_contained_matches
+    let children: Vec<&LicenseMatch> = candidate_contained_matches
         .iter()
-        .filter_map(|m| {
-            if m.matcher == aho_match::MATCH_AHO
+        .filter(|m| {
+            m.matcher == aho_match::MATCH_AHO
                 && has_full_match_coverage(m)
                 && m.license_expression != container.license_expression
                 && m.overlaps_with(&container_qspan_set)
-            {
-                Some((m, m.qspan()))
-            } else {
-                None
-            }
         })
         .collect();
 
@@ -281,29 +266,28 @@ fn is_redundant_low_coverage_composite_seq_wrapper(
 
     let unique_expressions: HashSet<&str> = children
         .iter()
-        .map(|(m, _)| m.license_expression.as_str())
+        .map(|m| m.license_expression.as_str())
         .collect();
     if unique_expressions.len() < 2 {
         return false;
     }
 
     let mut child_union = PositionSet::new();
-    for (_, qspan) in &children {
-        for &pos in qspan {
-            child_union.insert(pos);
-        }
+    for m in &children {
+        let span = m.effective_span();
+        child_union.extend_from_span(&span);
     }
 
     let container_only_positions = container_qspan_set.difference(&child_union);
     let child_only_positions = child_union.difference(&container_qspan_set);
 
     let mut sorted_children = children;
-    sorted_children.sort_by_key(|(m, _)| m.qspan_bounds());
+    sorted_children.sort_by_key(|m| m.qspan_bounds());
 
     let mut bridge_positions = BitSet::new();
     for pair in sorted_children.windows(2) {
-        let (_, previous_end) = pair[0].0.qspan_bounds();
-        let (next_start, _) = pair[1].0.qspan_bounds();
+        let (_, previous_end) = pair[0].qspan_bounds();
+        let (next_start, _) = pair[1].qspan_bounds();
         for pos in previous_end..next_start {
             bridge_positions.insert(pos);
         }
@@ -333,8 +317,8 @@ fn filter_redundant_low_coverage_composite_seq_wrappers(
 
 fn subtract_spdx_match_qspans(
     query: &mut Query<'_>,
-    matched_qspans: &mut Vec<query::PositionSpan>,
-    aho_extra_matchables: &mut BitSet,
+    matched_qspans: &mut Vec<models::PositionSpan>,
+    aho_extra_matchables: &mut PositionSet,
     spdx_matches: &[LicenseMatch],
 ) {
     for m in spdx_matches {
@@ -342,9 +326,7 @@ fn subtract_spdx_match_qspans(
             continue;
         };
 
-        for pos in span.iter() {
-            aho_extra_matchables.insert(pos);
-        }
+        aho_extra_matchables.extend_from_span(&span);
         query.subtract(&span);
 
         if has_full_match_coverage(m) {
@@ -356,7 +338,7 @@ fn subtract_spdx_match_qspans(
 fn merge_and_prepare_aho_matches(
     index: &index::LicenseIndex,
     query: &mut Query<'_>,
-    matched_qspans: &mut Vec<query::PositionSpan>,
+    matched_qspans: &mut Vec<models::PositionSpan>,
     refined_aho: &[LicenseMatch],
 ) -> (Vec<LicenseMatch>, bool) {
     let merged_aho = merge_overlapping_matches(refined_aho);
@@ -389,7 +371,7 @@ fn merge_and_prepare_aho_matches(
 fn collect_whole_query_exact_followup_matches(
     index: &index::LicenseIndex,
     query: &mut Query<'_>,
-    matched_qspans: &mut Vec<query::PositionSpan>,
+    matched_qspans: &mut Vec<models::PositionSpan>,
     whole_run: &query::QueryRun<'_>,
 ) -> Vec<LicenseMatch> {
     let mut seq_all_matches = Vec::new();
@@ -404,7 +386,7 @@ fn collect_whole_query_exact_followup_matches(
 
             for m in &near_dupe_matches {
                 if m.end_token > m.start_token {
-                    let span = query::PositionSpan::new(m.start_token, m.end_token - 1);
+                    let span = models::PositionSpan::new(m.start_token, m.end_token);
                     query.subtract(&span);
                     matched_qspans.push(span);
                 }
@@ -420,7 +402,7 @@ fn collect_whole_query_exact_followup_matches(
 fn collect_regular_seq_matches(
     index: &index::LicenseIndex,
     query: &Query<'_>,
-    matched_qspans: &[query::PositionSpan],
+    matched_qspans: &[models::PositionSpan],
     candidate_contained_matches: &[LicenseMatch],
 ) -> Vec<LicenseMatch> {
     let mut seq_all_matches = Vec::new();
@@ -529,8 +511,8 @@ impl LicenseDetectionEngine {
 
         let mut all_matches = Vec::new();
         let mut candidate_contained_matches = Vec::new();
-        let mut aho_extra_matchables = BitSet::new();
-        let mut matched_qspans: Vec<query::PositionSpan> = Vec::new();
+        let mut aho_extra_matchables = PositionSet::new();
+        let mut matched_qspans: Vec<models::PositionSpan> = Vec::new();
 
         // Phase 1a: Hash matching
         // Python returns immediately if hash matches found (index.py:987-991)
@@ -706,8 +688,8 @@ impl LicenseDetectionEngine {
 
         let mut all_matches = Vec::new();
         let mut candidate_contained_matches = Vec::new();
-        let mut aho_extra_matchables = BitSet::new();
-        let mut matched_qspans: Vec<query::PositionSpan> = Vec::new();
+        let mut aho_extra_matchables = PositionSet::new();
+        let mut matched_qspans: Vec<models::PositionSpan> = Vec::new();
 
         // Phase 1a: Hash matching
         {

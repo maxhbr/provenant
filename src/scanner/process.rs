@@ -17,6 +17,7 @@ use crate::copyright::{
     self, AuthorDetection, CopyrightDetection, CopyrightDetectionOptions, HolderDetection,
 };
 use crate::finder::{self, DetectionConfig};
+use crate::license_detection::PositionSet;
 use crate::license_detection::models::LicenseMatch as InternalLicenseMatch;
 use crate::license_detection::query::Query;
 use crate::models::{
@@ -962,7 +963,7 @@ fn compute_percentage_of_license_text(
     let matched_positions: std::collections::HashSet<usize> = detections
         .iter()
         .flat_map(|detection| detection.matches.iter())
-        .flat_map(InternalLicenseMatch::qspan)
+        .flat_map(|m| m.qspan.iter())
         .collect();
 
     let query_tokens_length = query.tokens.len() + query.unknowns_by_pos.values().sum::<usize>();
@@ -978,16 +979,15 @@ fn matched_text_diagnostics_from_match(
     query: &Query<'_>,
     license_match: &InternalLicenseMatch,
 ) -> String {
-    let matched_positions: std::collections::HashSet<usize> =
-        license_match.qspan().into_iter().collect();
-    let Some(start_pos) = matched_positions.iter().min().copied() else {
+    let matched_positions: PositionSet = license_match.qspan.iter().collect();
+    let Some(start_pos) = matched_positions.iter().min() else {
         return crate::license_detection::query::matched_text_from_text(
             &query.text,
             license_match.start_line,
             license_match.end_line,
         );
     };
-    let Some(end_pos) = matched_positions.iter().max().copied() else {
+    let Some(end_pos) = matched_positions.iter().max() else {
         return crate::license_detection::query::matched_text_from_text(
             &query.text,
             license_match.start_line,
@@ -1119,6 +1119,7 @@ mod tests {
     use crate::license_detection::LicenseDetection as InternalLicenseDetection;
     use crate::license_detection::index::LicenseIndex;
     use crate::license_detection::index::dictionary::TokenDictionary;
+    use crate::license_detection::models::position_span::PositionSpan;
     use crate::license_detection::models::{LicenseMatch, MatcherKind, RuleKind};
     use crate::license_detection::query::Query;
     use crate::scanner::LicenseScanOptions;
@@ -1147,12 +1148,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: RuleKind::Text,
             is_from_license: true,
-            matched_token_positions: None,
-            hilen: 3,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -1301,13 +1300,13 @@ mod tests {
         detection.matches[0].end_line = 3;
         detection.matches[0].start_token = 0;
         detection.matches[0].end_token = query.tokens.len();
-        detection.matches[0].qspan_positions = Some(
+        detection.matches[0].qspan = PositionSpan::from_positions(
             query
                 .tokens
                 .iter()
                 .enumerate()
                 .filter_map(|(idx, _)| (idx != 9).then_some(idx))
-                .collect(),
+                .collect::<Vec<_>>(),
         );
         detection.identifier = Some("fsf_ap-test".to_string());
 
@@ -1346,7 +1345,7 @@ mod tests {
         let text = "alpha MIT omega";
         let query = Query::from_extracted_text(text, &index, false).expect("query should build");
         let mut detection = make_detection("");
-        detection.matches[0].qspan_positions = Some(vec![1]);
+        detection.matches[0].qspan = PositionSpan::from_positions(vec![1]);
         detection.matches[0].start_token = 1;
         detection.matches[0].end_token = 2;
 

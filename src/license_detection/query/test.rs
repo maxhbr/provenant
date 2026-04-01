@@ -2,11 +2,10 @@
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use crate::license_detection::index::LicenseIndex;
     use crate::license_detection::index::dictionary::{TokenId, tid};
-    use crate::license_detection::query::{PositionSpan, Query, QueryRun};
+    use crate::license_detection::models::PositionSpan;
+    use crate::license_detection::query::{Query, QueryRun};
     use crate::license_detection::test_utils::create_test_index;
 
     fn create_query_test_index() -> LicenseIndex {
@@ -32,36 +31,12 @@ mod tests {
         Query::with_source_options(text, index, line_threshold, None)
     }
 
-    fn tids(values: &[u16]) -> Vec<TokenId> {
-        values.iter().copied().map(tid).collect()
-    }
-
-    fn query_tokens_length(query: &Query<'_>, with_unknown: bool) -> usize {
-        if with_unknown {
-            query.tokens.len() + query.unknowns_by_pos.values().sum::<usize>()
-        } else {
-            query.tokens.len()
-        }
-    }
-
     fn query_unknown_count_after(query: &Query<'_>, pos: Option<i32>) -> usize {
         query.unknowns_by_pos.get(&pos).copied().unwrap_or(0)
     }
 
     fn query_stopword_count_after(query: &Query<'_>, pos: Option<i32>) -> usize {
         query.stopwords_by_pos.get(&pos).copied().unwrap_or(0)
-    }
-
-    fn query_matchables(query: &Query<'_>) -> HashSet<usize> {
-        query.low_matchables.union(&query.high_matchables).collect()
-    }
-
-    fn query_matched(query: &Query<'_>) -> HashSet<usize> {
-        let all_positions: HashSet<usize> = (0..query.tokens.len()).collect();
-        all_positions
-            .difference(&query_matchables(query))
-            .copied()
-            .collect()
     }
 
     fn run_start_line(run: &QueryRun<'_>) -> Option<usize> {
@@ -139,7 +114,7 @@ mod tests {
 
         for pos in 0..query.tokens.len().min(3) {
             assert!(
-                query.shorts_and_digits_pos.contains(&pos),
+                query.shorts_and_digits_pos.contains(pos),
                 "Position {} should be short",
                 pos
             );
@@ -155,9 +130,9 @@ mod tests {
         let text = "123 456 license";
         let query = build_query(text, &index).unwrap();
 
-        assert!(query.shorts_and_digits_pos.contains(&0));
-        assert!(query.shorts_and_digits_pos.contains(&1));
-        assert!(!query.shorts_and_digits_pos.contains(&2));
+        assert!(query.shorts_and_digits_pos.contains(0));
+        assert!(query.shorts_and_digits_pos.contains(1));
+        assert!(!query.shorts_and_digits_pos.contains(2));
     }
 
     #[test]
@@ -170,24 +145,6 @@ mod tests {
         assert_eq!(query.line_for_pos(0), Some(1));
         assert_eq!(query.line_for_pos(1), Some(2));
         assert_eq!(query.line_for_pos(2), Some(3));
-    }
-
-    #[test]
-    fn test_query_tokens_length_without_unknowns() {
-        let index = create_query_test_index();
-        let text = "license foobar copyright";
-        let query = build_query(text, &index).unwrap();
-
-        assert_eq!(query_tokens_length(&query, false), 2);
-    }
-
-    #[test]
-    fn test_query_tokens_length_with_unknowns() {
-        let index = create_query_test_index();
-        let text = "license foobar copyright";
-        let query = build_query(text, &index).unwrap();
-
-        assert_eq!(query_tokens_length(&query, true), 3);
     }
 
     #[test]
@@ -266,7 +223,7 @@ mod tests {
         let query = build_query("license copyright permission", &index).unwrap();
         let run = QueryRun::new(&query, 0, Some(1));
 
-        assert_eq!(run.tokens(), tids(&[0, 1]));
+        assert_eq!(run.tokens(), vec![tid(0), tid(1)]);
     }
 
     #[test]
@@ -291,25 +248,13 @@ mod tests {
     }
 
     #[test]
-    fn test_query_matchables() {
-        let index = create_query_test_index();
-        let query = build_query("license copyright permission", &index).unwrap();
-
-        let matchables = query_matchables(&query);
-        assert_eq!(matchables.len(), 3);
-        assert!(matchables.contains(&0));
-        assert!(matchables.contains(&1));
-        assert!(matchables.contains(&2));
-    }
-
-    #[test]
     fn test_query_high_matchables() {
         let index = create_query_test_index();
         let query = build_query("license copyright permission", &index).unwrap();
         let run = QueryRun::new(&query, 0, Some(2));
 
         let high = run.high_matchables();
-        assert_eq!(high.count(), 3);
+        assert_eq!(high.len(), 3);
         assert!(query.high_matchables.contains(0));
         assert!(query.high_matchables.contains(1));
         assert!(query.high_matchables.contains(2));
@@ -333,10 +278,10 @@ mod tests {
         let run = QueryRun::new(&query, 0, Some(2));
 
         let matchables = run.matchables(true);
-        assert_eq!(matchables.count(), 3);
+        assert_eq!(matchables.len(), 3);
 
         let high_matchables = run.matchables(false);
-        assert_eq!(high_matchables.count(), 3);
+        assert_eq!(high_matchables.len(), 3);
     }
 
     #[test]
@@ -367,7 +312,7 @@ mod tests {
         let query = build_query("license copyright permission", &index).unwrap();
         let run = QueryRun::new(&query, 0, Some(2));
 
-        let exclude_span = PositionSpan::new(0, 1);
+        let exclude_span = PositionSpan::new(0, 2);
         assert!(run.is_matchable(false, &[exclude_span]));
     }
 
@@ -389,7 +334,7 @@ mod tests {
         let index = create_query_test_index();
         let mut query = build_query("license copyright permission", &index).unwrap();
 
-        let span = PositionSpan::new(0, 1);
+        let span = PositionSpan::new(0, 2);
         query.subtract(&span);
 
         assert!(!query.high_matchables.contains(0));
@@ -451,40 +396,6 @@ mod tests {
     }
 
     #[test]
-    fn test_query_detect_long_lines() {
-        let index = create_query_test_index();
-        let tokens: Vec<String> = (0..30).map(|i| format!("word{}", i)).collect();
-        let text = tokens.join(" ");
-        let _query = build_query(&text, &index).unwrap();
-
-        assert!(Query::detect_long_lines(&text));
-    }
-
-    #[test]
-    fn test_query_no_long_lines() {
-        let index = create_query_test_index();
-        let text = "license copyright permission";
-        let _query = build_query(text, &index).unwrap();
-
-        assert!(!Query::detect_long_lines(text));
-    }
-
-    #[test]
-    fn test_query_matched() {
-        let index = create_query_test_index();
-        let mut query = build_query("license copyright permission", &index).unwrap();
-
-        let span = PositionSpan::new(0, 1);
-        query.subtract(&span);
-
-        let matched = query_matched(&query);
-        assert_eq!(matched.len(), 2);
-        assert!(matched.contains(&0));
-        assert!(matched.contains(&1));
-        assert!(!matched.contains(&2));
-    }
-
-    #[test]
     fn test_query_run_get_index() {
         let index = create_query_test_index();
         let query = build_query("license copyright", &index).unwrap();
@@ -513,7 +424,7 @@ mod tests {
         let query = build_query("license copyright permission", &index).unwrap();
         let run = QueryRun::new(&query, 0, Some(2));
 
-        let exclude_span = PositionSpan::new(0, 2);
+        let exclude_span = PositionSpan::new(0, 3);
         assert!(!run.is_matchable(false, &[exclude_span]));
     }
 
@@ -620,7 +531,7 @@ mod tests {
         let run = QueryRun::new(&query, 1, Some(2));
 
         let high = run.high_matchables();
-        assert_eq!(high.count(), 2);
+        assert_eq!(high.len(), 2);
         assert!(high.contains(1));
         assert!(high.contains(2));
         assert!(!high.contains(0));
@@ -847,7 +758,7 @@ mod tests {
         assert!(query.high_matchables.contains(0));
         assert!(query.high_matchables.contains(1));
 
-        let span = PositionSpan::new(0, 1);
+        let span = PositionSpan::new(0, 2);
         query.subtract(&span);
 
         assert!(!query.high_matchables.contains(0));
@@ -863,10 +774,10 @@ mod tests {
 
         assert!(run.is_matchable(false, &[]));
 
-        let exclude = vec![PositionSpan::new(0, 1)];
+        let exclude = vec![PositionSpan::new(0, 2)];
         assert!(run.is_matchable(false, &exclude));
 
-        let exclude_all = vec![PositionSpan::new(0, 2)];
+        let exclude_all = vec![PositionSpan::new(0, 3)];
         assert!(!run.is_matchable(false, &exclude_all));
     }
 
@@ -878,7 +789,7 @@ mod tests {
         assert!(query.high_matchables.contains(0));
         assert!(query.high_matchables.contains(1));
 
-        let near_dupe_span = PositionSpan::new(0, 1);
+        let near_dupe_span = PositionSpan::new(0, 2);
         query.subtract(&near_dupe_span);
 
         assert!(!query.high_matchables.contains(0));
@@ -894,19 +805,19 @@ mod tests {
 
         let whole_run = query.whole_query_run();
         let before_subtraction = whole_run.high_matchables();
-        assert_eq!(before_subtraction.count(), 3);
+        assert_eq!(before_subtraction.len(), 3);
         assert!(before_subtraction.contains(0));
         assert!(before_subtraction.contains(1));
         assert!(before_subtraction.contains(2));
 
-        query.subtract(&PositionSpan::new(0, 1));
+        query.subtract(&PositionSpan::new(0, 2));
 
         let snapshot_after_subtraction = whole_run.high_matchables();
         assert_eq!(snapshot_after_subtraction, before_subtraction);
 
         let live_run = query.query_runs().into_iter().next().unwrap();
         let live_matchables = live_run.high_matchables();
-        assert_eq!(live_matchables.count(), 1);
+        assert_eq!(live_matchables.len(), 1);
         assert!(live_matchables.contains(2));
         assert!(!live_matchables.contains(0));
         assert!(!live_matchables.contains(1));

@@ -2,14 +2,15 @@
 
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::{KnownToken, QueryToken, TokenId, TokenKind};
+use crate::license_detection::models::PositionSpan;
+use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::spdx_lid::split_spdx_lid;
 use crate::license_detection::tokenize::STOPWORDS;
 use crate::license_detection::tokenize::tokenize_as_ids;
-use bit_set::BitSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::cell::{OnceCell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 static QUERY_PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"[^_\W]+\+?[^_\W]*").expect("valid query regex"));
@@ -25,35 +26,6 @@ struct MatchedTextToken {
     pos: Option<usize>,
     is_text: bool,
     is_matched: bool,
-}
-
-/// A span representing a range of token positions.
-///
-/// Used for tracking matched token positions and performing position arithmetic.
-/// This is a single continuous range of token positions (start..=end, inclusive).
-///
-/// Distinct from `spans::Span` which tracks multiple byte ranges for coverage.
-///
-/// Based on Python Span class at:
-/// reference/scancode-toolkit/src/licensedcode/spans.py
-#[derive(Debug, Clone)]
-pub struct PositionSpan {
-    start: usize,
-    end: usize,
-}
-
-impl PositionSpan {
-    pub fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-
-    pub fn contains(&self, pos: usize) -> bool {
-        self.start <= pos && pos <= self.end
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.start..=self.end
-    }
 }
 
 ///
@@ -109,21 +81,21 @@ pub struct Query<'a> {
     /// These tokens have special handling in matching.
     ///
     /// Corresponds to Python: `self.shorts_and_digits_pos = set()` (line 249)
-    pub shorts_and_digits_pos: HashSet<usize>,
+    pub shorts_and_digits_pos: PositionSet,
 
     /// High-value matchable token positions (legalese tokens)
     ///
     /// These are tokens with ID < len_legalese.
     ///
     /// Corresponds to Python: `self.high_matchables` (line 293)
-    pub high_matchables: BitSet,
+    pub high_matchables: PositionSet,
 
     /// Low-value matchable token positions (non-legalese tokens)
     ///
     /// These are tokens with ID >= len_legalese.
     ///
     /// Corresponds to Python: `self.low_matchables` (line 294)
-    pub low_matchables: BitSet,
+    pub low_matchables: PositionSet,
 
     /// True if the query is detected as binary content
     ///
@@ -171,7 +143,7 @@ pub fn matched_text_from_text(text: &str, start_line: usize, end_line: usize) ->
 pub fn matched_text_diagnostics_from_text(
     text: &str,
     query: &Query<'_>,
-    matched_positions: &HashSet<usize>,
+    matched_positions: &PositionSet,
     start_pos: usize,
     end_pos: usize,
     start_line: usize,
@@ -269,7 +241,7 @@ fn tokenize_matched_text(text: &str, query: &Query<'_>) -> Vec<MatchedTextToken>
 
 fn collect_reportable_tokens(
     tokens: Vec<MatchedTextToken>,
-    matched_positions: &HashSet<usize>,
+    matched_positions: &PositionSet,
     start_pos: usize,
     end_pos: usize,
     start_line: usize,
@@ -292,10 +264,7 @@ fn collect_reportable_tokens(
 
         let mut is_included = false;
 
-        if token
-            .pos
-            .is_some_and(|pos| matched_positions.contains(&pos))
-        {
+        if token.pos.is_some_and(|pos| matched_positions.contains(pos)) {
             token.is_matched = true;
             is_included = true;
         }
@@ -508,7 +477,7 @@ impl<'a> Query<'a> {
         let mut line_by_pos = Vec::new();
         let mut unknowns_by_pos: HashMap<Option<i32>, usize> = HashMap::new();
         let mut stopwords_by_pos: HashMap<Option<i32>, usize> = HashMap::new();
-        let mut shorts_and_digits_pos = HashSet::new();
+        let mut shorts_and_digits_pos = PositionSet::new();
         let mut spdx_lines: Vec<(String, usize, usize)> = Vec::new();
 
         let mut known_pos = -1i32;
@@ -582,14 +551,14 @@ impl<'a> Query<'a> {
             current_line += 1;
         }
 
-        let high_matchables: BitSet = tokens
+        let high_matchables: PositionSet = tokens
             .iter()
             .enumerate()
             .filter(|(_pos, tid)| index.dictionary.token_kind(**tid) == TokenKind::Legalese)
             .map(|(pos, _tid)| pos)
             .collect();
 
-        let low_matchables: BitSet = tokens
+        let low_matchables: PositionSet = tokens
             .iter()
             .enumerate()
             .filter(|(_pos, tid)| index.dictionary.token_kind(**tid) == TokenKind::Regular)
@@ -791,10 +760,8 @@ impl<'a> Query<'a> {
     ///
     /// Corresponds to Python: `subtract()` method (lines 328-334)
     pub fn subtract(&mut self, span: &PositionSpan) {
-        for pos in span.iter() {
-            self.high_matchables.remove(pos);
-            self.low_matchables.remove(pos);
-        }
+        self.high_matchables.remove_span(span);
+        self.low_matchables.remove_span(span);
     }
 
     /// Extract matched text for a given line range.
@@ -820,8 +787,8 @@ struct WholeQueryRunSnapshot<'a> {
     index: &'a LicenseIndex,
     tokens: Vec<TokenId>,
     line_by_pos: Vec<usize>,
-    high_matchables: BitSet,
-    low_matchables: BitSet,
+    high_matchables: PositionSet,
+    low_matchables: PositionSet,
 }
 
 /// A query run is a slice of query tokens identified by a start and end positions.
@@ -837,9 +804,9 @@ pub struct QueryRun<'a> {
     whole_query_snapshot: Option<WholeQueryRunSnapshot<'a>>,
     pub start: usize,
     pub end: Option<usize>,
-    cached_high_matchables: OnceCell<BitSet>,
-    cached_low_matchables: OnceCell<BitSet>,
-    combined_matchables: RefCell<Option<BitSet>>,
+    cached_high_matchables: OnceCell<PositionSet>,
+    cached_low_matchables: OnceCell<PositionSet>,
+    combined_matchables: RefCell<Option<PositionSet>>,
 }
 
 impl<'a> QueryRun<'a> {
@@ -911,7 +878,7 @@ impl<'a> QueryRun<'a> {
         }
     }
 
-    fn source_high_matchables(&self) -> &BitSet {
+    fn source_high_matchables(&self) -> &PositionSet {
         if let Some(query) = self.query {
             &query.high_matchables
         } else {
@@ -923,7 +890,7 @@ impl<'a> QueryRun<'a> {
         }
     }
 
-    fn source_low_matchables(&self) -> &BitSet {
+    fn source_low_matchables(&self) -> &PositionSet {
         if let Some(query) = self.query {
             &query.low_matchables
         } else {
@@ -1012,23 +979,18 @@ impl<'a> QueryRun<'a> {
 
         let mut matchable_set = matchables;
         for span in exclude_positions {
-            for pos in span.iter() {
-                matchable_set.remove(pos);
-            }
+            matchable_set.remove_span(span);
         }
 
         !matchable_set.is_empty()
     }
 
-    pub fn matchables(&self, include_low: bool) -> BitSet {
+    pub fn matchables(&self, include_low: bool) -> PositionSet {
         if include_low {
             if let Some(ref cached) = *self.combined_matchables.borrow() {
                 return cached.clone();
             }
-            let combined: BitSet = self
-                .low_matchables()
-                .union(&self.high_matchables())
-                .collect();
+            let combined = self.low_matchables().union(&self.high_matchables());
             *self.combined_matchables.borrow_mut() = Some(combined.clone());
             combined
         } else {
@@ -1054,13 +1016,13 @@ impl<'a> QueryRun<'a> {
             .collect()
     }
 
-    pub fn high_matchables(&self) -> BitSet {
+    pub fn high_matchables(&self) -> PositionSet {
         self.cached_high_matchables
             .get_or_init(|| {
                 let start = self.start;
-                let end = self.end;
+                let end = self.end.map(|e| e + 1).unwrap_or(usize::MAX);
                 let source = self.source_high_matchables();
-                let live_span = PositionSpan::new(start, end.unwrap_or(usize::MAX));
+                let live_span = PositionSpan::new(start, end);
                 source
                     .iter()
                     .filter(|&pos| live_span.contains(pos))
@@ -1069,13 +1031,13 @@ impl<'a> QueryRun<'a> {
             .clone()
     }
 
-    pub fn low_matchables(&self) -> BitSet {
+    pub fn low_matchables(&self) -> PositionSet {
         self.cached_low_matchables
             .get_or_init(|| {
                 let start = self.start;
-                let end = self.end;
+                let end = self.end.map(|e| e + 1).unwrap_or(usize::MAX);
                 let source = self.source_low_matchables();
-                let live_span = PositionSpan::new(start, end.unwrap_or(usize::MAX));
+                let live_span = PositionSpan::new(start, end);
                 source
                     .iter()
                     .filter(|&pos| live_span.contains(pos))

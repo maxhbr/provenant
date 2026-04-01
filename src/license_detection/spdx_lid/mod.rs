@@ -18,6 +18,7 @@ use sha1::{Digest, Sha1};
 
 use crate::license_detection::expression::{LicenseExpression, parse_expression};
 use crate::license_detection::index::LicenseIndex;
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
 use crate::license_detection::query::Query;
 
@@ -364,12 +365,10 @@ pub fn spdx_lid_match(index: &LicenseIndex, query: &Query) -> Vec<LicenseMatch> 
                 referenced_filenames,
                 rule_kind: crate::license_detection::models::RuleKind::Tag,
                 is_from_license: false,
-                matched_token_positions: None,
-                hilen: 0,
                 rule_start_token: 0,
-                qspan_positions: None,
-                ispan_positions: None,
-                hispan_positions: None,
+                qspan: PositionSpan::empty(),
+                ispan: PositionSpan::empty(),
+                hispan: PositionSpan::empty(),
                 candidate_resemblance: 0.0,
                 candidate_containment: 0.0,
             };

@@ -98,7 +98,7 @@ pub fn sort_matches_by_line(matches: &mut [LicenseMatch]) {
     matches.sort_by(|a, b| {
         a.start_token
             .cmp(&b.start_token)
-            .then_with(|| b.hilen.cmp(&a.hilen))
+            .then_with(|| b.hilen().cmp(&a.hilen()))
             .then_with(|| b.len().cmp(&a.len()))
             .then_with(|| a.matcher_order().cmp(&b.matcher_order()))
     });
@@ -131,7 +131,7 @@ pub(super) fn is_correct_detection(matches: &[LicenseMatch]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::license_detection::models::LicenseMatch;
+    use crate::license_detection::models::{LicenseMatch, PositionSpan};
 
     fn create_test_match(
         start_line: usize,
@@ -160,12 +160,10 @@ mod tests {
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
             rule_length: 100,
-            matched_token_positions: None,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }
@@ -198,12 +196,10 @@ mod tests {
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
             rule_length: 100,
-            matched_token_positions: None,
-            hilen: 50,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }

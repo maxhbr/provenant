@@ -169,6 +169,7 @@ pub fn filter_false_positive_license_lists_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::license_detection::models::position_span::PositionSpan;
 
     #[allow(clippy::too_many_arguments)]
     fn create_test_match_with_flags(
@@ -205,7 +206,8 @@ mod tests {
             rule_url: String::new(),
             matched_text: None,
             referenced_filenames: None,
-            rule_kind: crate::license_detection::models::RuleKind::from_match_flags(
+            rule_kind: crate::license_detection::models::RuleKind::from_rule_flags(
+                false,
                 false,
                 is_license_reference,
                 is_license_tag,
@@ -214,12 +216,10 @@ mod tests {
             )
             .unwrap(),
             is_from_license: false,
-            matched_token_positions: None,
-            hilen: matched_length / 2,
             rule_start_token: 0,
-            qspan_positions: Some((0..matched_length).collect()),
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::range(0, matched_length),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }

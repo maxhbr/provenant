@@ -7,7 +7,9 @@ use sha1::{Digest, Sha1};
 
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::{TokenId, TokenKind};
+use crate::license_detection::models::position_span::PositionSpan;
 use crate::license_detection::models::{LicenseMatch, MatcherKind};
+use crate::license_detection::position_set::PositionSet;
 use crate::license_detection::query::Query;
 use crate::license_detection::tokenize::STOPWORDS;
 
@@ -76,7 +78,7 @@ pub fn unknown_match(
             continue;
         }
 
-        let qspan_length: usize = qspan.iter().map(|(s, e)| e - s).sum();
+        let qspan_length = qspan.len();
 
         // DEBUG
         #[cfg(debug_assertions)]
@@ -107,7 +109,7 @@ pub fn unknown_match(
             continue;
         }
 
-        if let Some(match_result) = create_unknown_match_from_qspan(query, &qspan, hispan) {
+        if let Some(match_result) = create_unknown_match_from_qspan(query, &qspan) {
             unknown_matches.push(match_result);
         }
     }
@@ -115,24 +117,17 @@ pub fn unknown_match(
     unknown_matches
 }
 
-fn compute_covered_positions(
-    _query: &Query,
-    known_matches: &[LicenseMatch],
-) -> std::collections::HashSet<usize> {
-    let mut covered = std::collections::HashSet::new();
-
+fn compute_covered_positions(_query: &Query, known_matches: &[LicenseMatch]) -> PositionSet {
+    let mut covered = PositionSet::new();
     for m in known_matches {
-        for pos in m.qspan() {
-            covered.insert(pos);
-        }
+        covered.extend_from_span(&m.effective_span());
     }
-
     covered
 }
 
 fn find_unmatched_regions(
     query_len: usize,
-    covered_positions: &std::collections::HashSet<usize>,
+    covered_positions: &PositionSet,
 ) -> Vec<(usize, usize)> {
     let mut regions = Vec::new();
 
@@ -143,7 +138,7 @@ fn find_unmatched_regions(
     let mut region_start = None;
 
     for pos in 0..query_len {
-        if !covered_positions.contains(&pos) {
+        if !covered_positions.contains(pos) {
             if region_start.is_none() {
                 region_start = Some(pos);
             }
@@ -190,9 +185,9 @@ fn get_matched_ngrams(
     matches
 }
 
-fn compute_qspan_union(positions: &[(usize, usize)]) -> Vec<(usize, usize)> {
+fn compute_qspan_union(positions: &[(usize, usize)]) -> PositionSet {
     if positions.is_empty() {
-        return Vec::new();
+        return PositionSet::new();
     }
 
     let mut sorted: Vec<_> = positions.to_vec();
@@ -211,17 +206,20 @@ fn compute_qspan_union(positions: &[(usize, usize)]) -> Vec<(usize, usize)> {
     }
     merged.push(current);
 
-    merged
+    let mut result = PositionSet::new();
+    for (start, end) in merged {
+        result.extend_from_span(&PositionSpan::range(start, end));
+    }
+    result
 }
 
 fn compute_hispan_from_qspan(
     tokens: &[TokenId],
-    qspan: &[(usize, usize)],
+    qspan: &PositionSet,
     index: &LicenseIndex,
 ) -> usize {
     qspan
         .iter()
-        .flat_map(|(start, end)| *start..*end)
         .filter(|&pos| {
             tokens
                 .get(pos)
@@ -230,21 +228,15 @@ fn compute_hispan_from_qspan(
         .count()
 }
 
-fn create_unknown_match_from_qspan(
-    query: &Query,
-    qspan: &[(usize, usize)],
-    hispan: usize,
-) -> Option<LicenseMatch> {
+fn create_unknown_match_from_qspan(query: &Query, qspan: &PositionSet) -> Option<LicenseMatch> {
     if qspan.is_empty() {
         return None;
     }
 
-    let qspan_positions: Vec<usize> = qspan.iter().flat_map(|(start, end)| *start..*end).collect();
+    let match_len = qspan.len();
 
-    let match_len = qspan_positions.len();
-
-    let start = qspan.first()?.0;
-    let end = qspan.last()?.1;
+    let start = qspan.min_pos();
+    let end = qspan.max_pos() + 1;
 
     let start_line = query.line_by_pos.get(start).copied().unwrap_or(1);
     let end_line = query
@@ -253,6 +245,7 @@ fn create_unknown_match_from_qspan(
         .copied()
         .unwrap_or(start_line);
 
+    let qspan_positions: Vec<usize> = qspan.iter().collect();
     let synthetic_rule_text =
         build_unknown_rule_text(query, &qspan_positions, start_line, end_line);
     let rule_identifier = build_unknown_rule_identifier(&synthetic_rule_text);
@@ -282,12 +275,10 @@ fn create_unknown_match_from_qspan(
         referenced_filenames: None,
         rule_kind: crate::license_detection::models::RuleKind::None,
         is_from_license: false,
-        matched_token_positions: None,
-        hilen: hispan,
         rule_start_token: 0,
-        qspan_positions: Some(qspan_positions),
-        ispan_positions: None,
-        hispan_positions: None,
+        qspan: qspan.to_position_span(),
+        ispan: PositionSpan::empty(),
+        hispan: PositionSpan::empty(),
         candidate_resemblance: 0.0,
         candidate_containment: 0.0,
     }
@@ -307,8 +298,7 @@ fn build_unknown_rule_text(
         return String::new();
     };
 
-    let matched_positions: std::collections::HashSet<usize> =
-        qspan_positions.iter().copied().collect();
+    let matched_positions: PositionSet = qspan_positions.iter().copied().collect();
     let tokens = tokenize_matched_unknown_text(&query.text, query);
     let reportable_tokens = collect_reportable_unknown_tokens(
         tokens,
@@ -407,7 +397,7 @@ fn tokenize_matched_unknown_text(text: &str, query: &Query) -> Vec<MatchedTextTo
 
 fn collect_reportable_unknown_tokens(
     tokens: Vec<MatchedTextToken>,
-    matched_positions: &std::collections::HashSet<usize>,
+    matched_positions: &PositionSet,
     start_pos: usize,
     end_pos: usize,
     start_line: usize,
@@ -432,7 +422,7 @@ fn collect_reportable_unknown_tokens(
 
         if token
             .pos
-            .is_some_and(|pos| token.is_known && matched_positions.contains(&pos))
+            .is_some_and(|pos| token.is_known && matched_positions.contains(pos))
         {
             token.is_matched = true;
             is_included = true;
@@ -589,7 +579,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_no_coverage() {
         let query_len = 10;
-        let covered_positions = std::collections::HashSet::new();
+        let covered_positions = PositionSet::new();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -599,7 +589,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_full_coverage() {
         let query_len = 10;
-        let covered_positions: std::collections::HashSet<usize> = (0..10).collect();
+        let covered_positions: PositionSet = (0..10).collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -609,11 +599,10 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_partial_coverage() {
         let query_len = 20;
-        let covered_positions: std::collections::HashSet<usize> =
-            [0, 1, 2, 12, 13, 14, 15, 16, 17, 18, 19]
-                .iter()
-                .cloned()
-                .collect();
+        let covered_positions: PositionSet = [0, 1, 2, 12, 13, 14, 15, 16, 17, 18, 19]
+            .iter()
+            .cloned()
+            .collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -624,8 +613,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_trailing_unmatched() {
         let query_len = 20;
-        let covered_positions: std::collections::HashSet<usize> =
-            [0, 1, 2, 3, 4, 5].iter().cloned().collect();
+        let covered_positions: PositionSet = [0, 1, 2, 3, 4, 5].iter().cloned().collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -644,28 +632,46 @@ mod tests {
     fn test_compute_qspan_union_single() {
         let positions = vec![(5, 11)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 11)]);
+        assert_eq!(merged.len(), 6);
+        assert!(merged.contains(5));
+        assert!(merged.contains(10));
+        assert!(!merged.contains(4));
+        assert!(!merged.contains(11));
     }
 
     #[test]
     fn test_compute_qspan_union_overlapping() {
         let positions = vec![(5, 11), (8, 14), (20, 26)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 14), (20, 26)]);
+        assert_eq!(merged.len(), 15);
+        assert!(merged.contains(5));
+        assert!(merged.contains(13));
+        assert!(!merged.contains(14));
+        assert!(merged.contains(20));
+        assert!(merged.contains(25));
+        assert!(!merged.contains(26));
     }
 
     #[test]
     fn test_compute_qspan_union_adjacent() {
         let positions = vec![(5, 11), (11, 17)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 17)]);
+        assert_eq!(merged.len(), 12);
+        assert!(merged.contains(5));
+        assert!(merged.contains(16));
+        assert!(!merged.contains(4));
+        assert!(!merged.contains(17));
     }
 
     #[test]
     fn test_compute_qspan_union_unsorted() {
         let positions = vec![(20, 26), (5, 11), (8, 14)];
         let merged = compute_qspan_union(&positions);
-        assert_eq!(merged, vec![(5, 14), (20, 26)]);
+        assert_eq!(merged.len(), 15);
+        assert!(merged.contains(5));
+        assert!(merged.contains(13));
+        assert!(merged.contains(20));
+        assert!(merged.contains(25));
     }
 
     #[test]
@@ -693,7 +699,10 @@ mod tests {
         for i in 15..30 {
             tokens.push(index.dictionary.get_or_assign(&format!("regular-{i}")));
         }
-        let qspan = vec![(0, 10), (20, 25)];
+        let qspan: PositionSet = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24]
+            .iter()
+            .copied()
+            .collect();
         let hispan = compute_hispan_from_qspan(&tokens, &qspan, &index);
         assert_eq!(hispan, 10);
     }
@@ -763,11 +772,10 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_leading_unmatched() {
         let query_len = 20;
-        let covered_positions: std::collections::HashSet<usize> =
-            [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-                .iter()
-                .cloned()
-                .collect();
+        let covered_positions: PositionSet = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            .iter()
+            .cloned()
+            .collect();
 
         let regions = find_unmatched_regions(query_len, &covered_positions);
 
@@ -778,7 +786,7 @@ mod tests {
     #[test]
     fn test_find_unmatched_regions_middle_gap() {
         let query_len = 30;
-        let covered_positions: std::collections::HashSet<usize> =
+        let covered_positions: PositionSet =
             [0, 1, 2, 3, 4, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
                 .iter()
                 .cloned()
@@ -809,7 +817,6 @@ mod tests {
             score: 1.0,
             matched_length: 6,
             rule_length: 6,
-            matched_token_positions: None,
             match_coverage: 100.0,
             rule_relevance: 100,
             rule_identifier: "test-rule".to_string(),
@@ -818,25 +825,24 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 1,
             rule_start_token: 0,
-            qspan_positions: Some(vec![0, 1, 2, 7, 8, 9]),
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::from_positions(vec![0, 1, 2, 7, 8, 9]),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }];
 
         let covered = compute_covered_positions(&query, &known_matches);
 
-        assert!(covered.contains(&0), "Should contain position 0");
-        assert!(covered.contains(&2), "Should contain position 2");
-        assert!(covered.contains(&7), "Should contain position 7");
-        assert!(covered.contains(&9), "Should contain position 9");
-        assert!(!covered.contains(&3), "Should NOT contain position 3 (gap)");
-        assert!(!covered.contains(&5), "Should NOT contain position 5 (gap)");
+        assert!(covered.contains(0), "Should contain position 0");
+        assert!(covered.contains(2), "Should contain position 2");
+        assert!(covered.contains(7), "Should contain position 7");
+        assert!(covered.contains(9), "Should contain position 9");
+        assert!(!covered.contains(3), "Should NOT contain position 3 (gap)");
+        assert!(!covered.contains(5), "Should NOT contain position 5 (gap)");
         assert!(
-            !covered.contains(&10),
+            !covered.contains(10),
             "Should NOT contain position 10 (outside)"
         );
     }
@@ -860,7 +866,6 @@ mod tests {
             score: 1.0,
             matched_length: 5,
             rule_length: 5,
-            matched_token_positions: None,
             match_coverage: 100.0,
             rule_relevance: 100,
             rule_identifier: "test-rule".to_string(),
@@ -869,26 +874,25 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 1,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }];
 
         let covered = compute_covered_positions(&query, &known_matches);
 
-        assert!(covered.contains(&5), "Should contain position 5");
-        assert!(covered.contains(&7), "Should contain position 7");
-        assert!(covered.contains(&9), "Should contain position 9");
+        assert!(covered.contains(5), "Should contain position 5");
+        assert!(covered.contains(7), "Should contain position 7");
+        assert!(covered.contains(9), "Should contain position 9");
         assert!(
-            !covered.contains(&4),
+            !covered.contains(4),
             "Should NOT contain position 4 (before)"
         );
         assert!(
-            !covered.contains(&10),
+            !covered.contains(10),
             "Should NOT contain position 10 (after)"
         );
     }
@@ -912,7 +916,6 @@ mod tests {
             score: 1.0,
             matched_length: 8,
             rule_length: 8,
-            matched_token_positions: None,
             match_coverage: 100.0,
             rule_relevance: 100,
             rule_identifier: "test-rule".to_string(),
@@ -921,11 +924,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 1,
             rule_start_token: 0,
-            qspan_positions: Some(vec![0, 1, 2, 3, 11, 12, 13, 14]),
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::from_positions(vec![0, 1, 2, 3, 11, 12, 13, 14]),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }];
@@ -944,7 +946,7 @@ mod tests {
             regions
         );
 
-        let contiguous_covered: std::collections::HashSet<usize> = (0..15).collect();
+        let contiguous_covered: PositionSet = (0..15).collect();
         let contiguous_regions = find_unmatched_regions(20, &contiguous_covered);
         assert_eq!(
             contiguous_regions,
@@ -962,10 +964,9 @@ mod tests {
         let tokens: Vec<u16> = (0..30).collect();
         let query = create_mock_query_with_tokens(&tokens, &index);
 
-        let qspan = vec![(0, 30)];
-        let hispan = 30;
+        let qspan: PositionSet = (0..30).collect();
 
-        let match_result = create_unknown_match_from_qspan(&query, &qspan, hispan);
+        let match_result = create_unknown_match_from_qspan(&query, &qspan);
 
         assert!(
             match_result.is_some(),
@@ -975,7 +976,7 @@ mod tests {
         let m = match_result.unwrap();
         assert_eq!(m.license_expression, "unknown");
         assert_eq!(m.matcher, MATCH_UNKNOWN);
-        assert!(m.qspan_positions.is_some());
+        assert!(!m.qspan.is_empty());
     }
 
     #[test]
@@ -998,7 +999,6 @@ mod tests {
             score: 1.0,
             matched_length: 5,
             rule_length: 5,
-            matched_token_positions: None,
             match_coverage: 100.0,
             rule_relevance: 100,
             rule_identifier: "test-rule".to_string(),
@@ -1007,11 +1007,10 @@ mod tests {
             referenced_filenames: None,
             rule_kind: crate::license_detection::models::RuleKind::None,
             is_from_license: false,
-            hilen: 2,
             rule_start_token: 0,
-            qspan_positions: None,
-            ispan_positions: None,
-            hispan_positions: None,
+            qspan: PositionSpan::empty(),
+            ispan: PositionSpan::empty(),
+            hispan: PositionSpan::empty(),
             candidate_resemblance: 0.0,
             candidate_containment: 0.0,
         }];
