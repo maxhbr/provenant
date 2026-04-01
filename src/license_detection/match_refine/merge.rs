@@ -714,6 +714,8 @@ mod tests {
     #[test]
     fn test_qspan_magnitude_empty() {
         let mut m = create_test_match("#1", 1, 10, 0.9, 90.0, 100);
+        m.start_token = 5;
+        m.end_token = 5;
         m.qspan = PositionSpan::empty();
         assert_eq!(m.qspan_magnitude(), 0);
     }
