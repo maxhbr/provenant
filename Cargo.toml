@@ -112,7 +112,7 @@ ar = "0.9"           # Unix ar archive format (for .deb)
 rpm = { version = "0.19.0", default-features = false, features = ["gzip-compression", "xz-compression", "zstd-compression", "bzip2-compression"] }
 strum = { version = "0.28.0", features = ["derive"] }
 rmp-serde = { workspace = true }
-bit-set = "0.9.1"
+bit-set = "0.10.0"
 daachorse = "1.0.0"
 smallvec = { version = "1.15.1", features = ["write"] }
 yaml_serde = "0.10.4"
