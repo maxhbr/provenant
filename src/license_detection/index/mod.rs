@@ -2,7 +2,6 @@
 
 pub mod builder;
 pub mod dictionary;
-pub mod token_sets;
 
 // build_index is used by library tests (see spdx_lid/test.rs, index/builder/tests.rs)
 // even though the binary doesn't use it directly.

@@ -1,12 +1,11 @@
 //! Candidate selection using set and multiset similarity.
 
 use crate::license_detection::TokenMultiset;
+use crate::license_detection::TokenSet;
 use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::TokenId;
-use crate::license_detection::index::token_sets::build_set_and_mset;
 use crate::license_detection::models::Rule;
 use crate::license_detection::query::QueryRun;
-use crate::license_detection::token_set::TokenSet;
 use std::collections::{HashMap, HashSet};
 
 use super::HIGH_RESEMBLANCE_THRESHOLD;
@@ -110,8 +109,8 @@ impl QueryData {
             return None;
         }
 
-        let (query_set_hash, query_mset) = build_set_and_mset(&query_token_ids);
-        let query_set = TokenSet::from_u16_iter(query_set_hash.iter().map(|tid| tid.raw()));
+        let query_set = TokenSet::from_token_ids(query_token_ids.iter().copied());
+        let query_mset = TokenMultiset::from_token_ids(&query_token_ids);
 
         let query_high_set = TokenSet::from_u16_iter(
             query_set

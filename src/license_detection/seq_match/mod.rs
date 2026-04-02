@@ -41,11 +41,10 @@ mod tests {
     use crate::license_detection::index::IndexedRuleMetadata;
     use crate::license_detection::index::LicenseIndex;
     use crate::license_detection::index::dictionary::{TokenId, TokenKind};
-    use crate::license_detection::index::token_sets::build_set_and_mset;
     use crate::license_detection::models::Rule;
     use crate::license_detection::query::Query;
     use crate::license_detection::test_utils::create_test_index;
-    use crate::license_detection::token_set::TokenSet;
+    use crate::license_detection::{TokenMultiset, TokenSet};
     use std::collections::HashMap;
 
     pub(super) fn create_seq_match_test_index() -> LicenseIndex {
@@ -68,16 +67,15 @@ mod tests {
             .filter_map(|word| index.dictionary.get(word))
             .collect();
 
-        let (set, mset) = build_set_and_mset(&tokens);
-        let token_set: TokenSet = TokenSet::from_u16_iter(set.iter().map(|tid| tid.raw()));
-        let _ = index.sets_by_rid.insert(rid, token_set);
+        let set = TokenSet::from_token_ids(tokens.iter().copied());
+        let mset = TokenMultiset::from_token_ids(&tokens);
+        let _ = index.sets_by_rid.insert(rid, set.clone());
         let _ = index.msets_by_rid.insert(rid, mset);
 
-        let high_set: TokenSet = TokenSet::from_u16_iter(
-            set.iter()
-                .filter(|&&tid| index.dictionary.token_kind(tid) == TokenKind::Legalese)
-                .map(|tid| tid.raw()),
-        );
+        let high_set: TokenSet =
+            TokenSet::from_u16_iter(set.iter().filter(|&tid| {
+                index.dictionary.token_kind(TokenId::new(tid)) == TokenKind::Legalese
+            }));
         if !high_set.is_empty() {
             let _ = index.high_sets_by_rid.insert(rid, high_set);
         }
