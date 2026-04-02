@@ -1,8 +1,8 @@
 //! Candidate selection using set and multiset similarity.
 
-use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::index::dictionary::TokenId;
 use crate::license_detection::index::token_sets::{build_set_and_mset, high_multiset_subset};
+use crate::license_detection::index::LicenseIndex;
 use crate::license_detection::models::Rule;
 use crate::license_detection::query::QueryRun;
 use crate::license_detection::token_set::TokenSet;
@@ -82,6 +82,61 @@ pub struct Candidate<'a> {
     pub high_set_intersection: TokenSet,
 }
 
+#[derive(Debug, Clone)]
+struct QueryData {
+    query_set: TokenSet,
+    query_mset: HashMap<TokenId, usize>,
+    query_high_set: TokenSet,
+    query_high_mset: HashMap<TokenId, usize>,
+    query_set_len: usize,
+    query_mset_len: usize,
+}
+
+impl QueryData {
+    fn new(index: &LicenseIndex, query_run: &QueryRun) -> Option<Self> {
+        let query_tokens = query_run.matchable_tokens();
+        if query_tokens.is_empty() {
+            return None;
+        }
+
+        let query_token_ids: Vec<TokenId> = query_tokens
+            .iter()
+            .filter(|&&tid| tid >= 0)
+            .map(|&tid| TokenId::new(tid as u16))
+            .collect();
+
+        if query_token_ids.is_empty() {
+            return None;
+        }
+
+        let (query_set_hash, query_mset) = build_set_and_mset(&query_token_ids);
+        let query_set = TokenSet::from_u16_iter(query_set_hash.iter().map(|tid| tid.raw()));
+
+        let query_high_set = TokenSet::from_u16_iter(
+            query_set
+                .iter()
+                .filter(|tid| (*tid as usize) < index.len_legalese),
+        );
+
+        if query_high_set.is_empty() {
+            return None;
+        }
+
+        let query_high_mset = high_multiset_subset(&query_mset, &index.dictionary);
+        let query_set_len = query_set.len();
+        let query_mset_len = query_mset.values().sum();
+
+        Some(Self {
+            query_set,
+            query_mset,
+            query_high_set,
+            query_high_mset,
+            query_set_len,
+            query_mset_len,
+        })
+    }
+}
+
 impl PartialOrd for Candidate<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -106,6 +161,13 @@ impl Ord for Candidate<'_> {
             other.rid,
         )
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScoreInputs {
+    matched_length: usize,
+    query_len: usize,
+    rule_len: usize,
 }
 
 fn compare_candidate_rank(
@@ -179,6 +241,166 @@ fn build_score_vectors(
     (score_vec_rounded, score_vec_full)
 }
 
+fn passes_minimum_containment(rule: &Rule, containment: f64) -> bool {
+    let minimum_containment = rule.minimum_coverage.map(|mc| mc as f64 / 100.0);
+    minimum_containment.is_none_or(|min_cont| containment >= min_cont)
+}
+
+fn build_ranked_candidate<'a>(
+    rid: usize,
+    rule: &'a Rule,
+    high_set_intersection: TokenSet,
+    score_inputs: ScoreInputs,
+    high_resemblance: bool,
+) -> Option<Candidate<'a>> {
+    if score_inputs.query_len == 0 || score_inputs.rule_len == 0 {
+        return None;
+    }
+
+    let union_len = score_inputs.query_len + score_inputs.rule_len - score_inputs.matched_length;
+    let resemblance = score_inputs.matched_length as f64 / union_len as f64;
+    let containment = score_inputs.matched_length as f64 / score_inputs.rule_len as f64;
+
+    if !passes_minimum_containment(rule, containment) {
+        return None;
+    }
+
+    let (score_vec_rounded, score_vec_full) =
+        build_score_vectors(resemblance, containment, score_inputs.matched_length, rid);
+
+    if high_resemblance
+        && (!score_vec_rounded.is_highly_resemblant || !score_vec_full.is_highly_resemblant)
+    {
+        return None;
+    }
+
+    Some(Candidate {
+        rid,
+        rule,
+        high_set_intersection,
+        score_vec_rounded,
+        score_vec_full,
+    })
+}
+
+fn collect_set_phase_candidates<'a>(
+    index: &'a LicenseIndex,
+    query_data: &QueryData,
+    high_resemblance: bool,
+) -> Vec<Candidate<'a>> {
+    let candidate_rids: HashSet<usize> = query_data
+        .query_high_set
+        .iter()
+        .filter_map(|tid| index.rids_by_high_tid.get(&TokenId::new(tid)))
+        .flat_map(|rids| rids.iter().copied())
+        .collect();
+
+    let mut candidates = Vec::new();
+
+    for rid in candidate_rids {
+        let Some(rule) = index.rules_by_rid.get(rid) else {
+            continue;
+        };
+        let Some(rule_set) = index.sets_by_rid.get(&rid) else {
+            continue;
+        };
+        let Some(rule_high_set) = index.high_sets_by_rid.get(&rid) else {
+            continue;
+        };
+
+        let high_intersection_size = query_data.query_high_set.intersection_count(rule_high_set);
+        if high_intersection_size < rule.min_high_matched_length_unique {
+            continue;
+        }
+
+        let high_set_intersection = query_data.query_high_set.intersection(rule_high_set);
+        if high_set_intersection.is_empty() {
+            continue;
+        }
+
+        let intersection = query_data.query_set.intersection(rule_set);
+        if intersection.is_empty() {
+            continue;
+        }
+
+        let matched_length = intersection.len();
+        if matched_length < rule.min_matched_length_unique {
+            continue;
+        }
+
+        let Some(candidate) = build_ranked_candidate(
+            rid,
+            rule,
+            high_set_intersection,
+            ScoreInputs {
+                matched_length,
+                query_len: query_data.query_set_len,
+                rule_len: rule.length_unique,
+            },
+            high_resemblance,
+        ) else {
+            continue;
+        };
+
+        candidates.push(candidate);
+    }
+
+    candidates
+}
+
+fn collect_multiset_phase_candidates<'a>(
+    index: &'a LicenseIndex,
+    query_data: &QueryData,
+    shortlisted: Vec<Candidate<'a>>,
+    high_resemblance: bool,
+) -> Vec<Candidate<'a>> {
+    let mut candidates = Vec::new();
+
+    for candidate in shortlisted {
+        let Some(rule_mset) = index.msets_by_rid.get(&candidate.rid) else {
+            continue;
+        };
+
+        let rule_high_mset = high_multiset_subset(rule_mset, &index.dictionary);
+        let high_intersection_mset =
+            multisets_intersector(&query_data.query_high_mset, &rule_high_mset);
+        if high_intersection_mset.is_empty() {
+            continue;
+        }
+
+        let high_matched_length: usize = high_intersection_mset.values().sum();
+        if high_matched_length < candidate.rule.min_high_matched_length {
+            continue;
+        }
+
+        let full_intersection_mset = multisets_intersector(&query_data.query_mset, rule_mset);
+        let matched_length: usize = full_intersection_mset.values().sum();
+        if matched_length < candidate.rule.min_matched_length {
+            continue;
+        }
+
+        let iset_len: usize = rule_mset.values().sum();
+
+        let Some(candidate) = build_ranked_candidate(
+            candidate.rid,
+            candidate.rule,
+            candidate.high_set_intersection,
+            ScoreInputs {
+                matched_length,
+                query_len: query_data.query_mset_len,
+                rule_len: iset_len,
+            },
+            high_resemblance,
+        ) else {
+            continue;
+        };
+
+        candidates.push(candidate);
+    }
+
+    candidates
+}
+
 /// Key for grouping duplicate candidates.
 ///
 /// Candidates with the same DupeGroupKey are considered duplicates,
@@ -237,6 +459,56 @@ pub(super) fn filter_dupes(candidates: Vec<Candidate<'_>>) -> Vec<Candidate<'_>>
     result
 }
 
+/// Compute multiset-based candidates (Phase 2 refinement).
+///
+/// After selecting candidates using sets, this refines the ranking using multisets.
+///
+/// Corresponds to Python: `compute_candidates()` step 2 in match_set.py (line 311-350)
+pub fn compute_candidates_with_msets<'a>(
+    index: &'a LicenseIndex,
+    query_run: &QueryRun,
+    high_resemblance: bool,
+    top_n: usize,
+) -> Vec<Candidate<'a>> {
+    let Some(query_data) = QueryData::new(index, query_run) else {
+        return Vec::new();
+    };
+
+    let mut set_phase_candidates =
+        collect_set_phase_candidates(index, &query_data, high_resemblance);
+
+    if set_phase_candidates.is_empty() {
+        return Vec::new();
+    }
+
+    set_phase_candidates.sort_by(|a, b| {
+        compare_candidate_rank(
+            &b.score_vec_rounded,
+            &b.score_vec_full,
+            b.rid,
+            &a.score_vec_rounded,
+            &a.score_vec_full,
+            a.rid,
+        )
+    });
+
+    set_phase_candidates.truncate(top_n * 10);
+
+    let mut sortable_candidates = collect_multiset_phase_candidates(
+        index,
+        &query_data,
+        set_phase_candidates,
+        high_resemblance,
+    );
+
+    sortable_candidates = filter_dupes(sortable_candidates);
+
+    sortable_candidates.sort_by(|a, b| b.cmp(a));
+    sortable_candidates.truncate(top_n);
+
+    sortable_candidates
+}
+
 /// Compute intersection of two multisets.
 ///
 /// For each token ID present in both multisets, the intersection value is the
@@ -256,205 +528,6 @@ pub fn multisets_intersector(
     set1.iter()
         .filter_map(|(&tid, &count1)| set2.get(&tid).map(|&count2| (tid, count1.min(count2))))
         .collect()
-}
-
-/// Compute multiset-based candidates (Phase 2 refinement).
-///
-/// After selecting candidates using sets, this refines the ranking using multisets.
-///
-/// Corresponds to Python: `compute_candidates()` step 2 in match_set.py (line 311-350)
-pub fn compute_candidates_with_msets<'a>(
-    index: &'a LicenseIndex,
-    query_run: &QueryRun,
-    high_resemblance: bool,
-    top_n: usize,
-) -> Vec<Candidate<'a>> {
-    let query_tokens = query_run.matchable_tokens();
-    if query_tokens.is_empty() {
-        return Vec::new();
-    }
-
-    let query_token_ids: Vec<TokenId> = query_tokens
-        .iter()
-        .filter(|&&tid| tid >= 0)
-        .map(|&tid| TokenId::new(tid as u16))
-        .collect();
-
-    if query_token_ids.is_empty() {
-        return Vec::new();
-    }
-
-    let (query_set_hash, query_mset) = build_set_and_mset(&query_token_ids);
-    let query_set: TokenSet = TokenSet::from_u16_iter(query_set_hash.iter().map(|tid| tid.raw()));
-
-    // Build the set of high-value tokens in the query
-    let query_high_set: TokenSet = TokenSet::from_u16_iter(
-        query_set
-            .iter()
-            .filter(|tid| (*tid as usize) < index.len_legalese),
-    );
-
-    if query_high_set.is_empty() {
-        return Vec::new();
-    }
-
-    // Use inverted index to find candidate rules that share high-value tokens
-    let candidate_rids: HashSet<usize> = query_high_set
-        .iter()
-        .filter_map(|tid| index.rids_by_high_tid.get(&TokenId::new(tid)))
-        .flat_map(|rids| rids.iter().copied())
-        .collect();
-
-    if candidate_rids.is_empty() {
-        return Vec::new();
-    }
-
-    let mut step1_candidates: Vec<(ScoresVector, ScoresVector, usize, &'a Rule, TokenSet)> =
-        Vec::new();
-
-    for rid in candidate_rids {
-        let Some(rule) = index.rules_by_rid.get(rid) else {
-            continue;
-        };
-        let Some(rule_set) = index.sets_by_rid.get(&rid) else {
-            continue;
-        };
-        let Some(rule_high_set) = index.high_sets_by_rid.get(&rid) else {
-            continue;
-        };
-
-        // STEP 1: Compute HIGH intersection first (smaller sets, faster)
-        // Check size without allocation for early rejection
-        let high_intersection_size = query_high_set.intersection_count(rule_high_set);
-        if high_intersection_size < rule.min_high_matched_length_unique {
-            continue;
-        }
-
-        // Allocate the high intersection (passed threshold check)
-        let high_set_intersection: TokenSet = query_high_set.intersection(rule_high_set);
-        if high_set_intersection.is_empty() {
-            continue;
-        }
-
-        // STEP 2: Only now compute FULL intersection (fewer candidates reach here)
-        let intersection: TokenSet = query_set.intersection(rule_set);
-        if intersection.is_empty() {
-            continue;
-        }
-
-        // Check total intersection threshold
-        let matched_length = intersection.len();
-        if matched_length < rule.min_matched_length_unique {
-            continue;
-        }
-
-        // Compute resemblance using TOTAL intersection, not just high
-        let qset_len = query_set.len();
-        let iset_len = rule.length_unique;
-        if qset_len == 0 || iset_len == 0 {
-            continue;
-        }
-
-        let union_len = qset_len + iset_len - matched_length;
-        let resemblance = matched_length as f64 / union_len as f64;
-        let containment = matched_length as f64 / iset_len as f64;
-
-        // Check minimum_containment (Python: match_set.py:429-433)
-        // Rules with minimum_coverage require a minimum containment ratio
-        let minimum_containment = rule.minimum_coverage.map(|mc| mc as f64 / 100.0);
-        if let Some(min_cont) = minimum_containment
-            && containment < min_cont
-        {
-            continue;
-        }
-
-        let (svr, svf) = build_score_vectors(resemblance, containment, matched_length, rid);
-
-        if high_resemblance && (!svr.is_highly_resemblant || !svf.is_highly_resemblant) {
-            continue;
-        }
-
-        step1_candidates.push((svr, svf, rid, rule, high_set_intersection));
-    }
-
-    if step1_candidates.is_empty() {
-        return Vec::new();
-    }
-
-    step1_candidates.sort_by(|a, b| compare_candidate_rank(&b.0, &b.1, b.2, &a.0, &a.1, a.2));
-
-    step1_candidates.truncate(top_n * 10);
-
-    let mut sortable_candidates: Vec<Candidate<'a>> = Vec::new();
-
-    for (_svr, _svf, rid, rule, high_set_intersection) in step1_candidates {
-        let Some(rule_mset) = index.msets_by_rid.get(&rid) else {
-            continue;
-        };
-
-        // Filter using HIGH multisets (Python: high_intersection check)
-        let query_high_mset = high_multiset_subset(&query_mset, &index.dictionary);
-        let rule_high_mset = high_multiset_subset(rule_mset, &index.dictionary);
-        let high_intersection_mset = multisets_intersector(&query_high_mset, &rule_high_mset);
-        if high_intersection_mset.is_empty() {
-            continue;
-        }
-
-        let high_matched_length: usize = high_intersection_mset.values().sum();
-        if high_matched_length < rule.min_high_matched_length {
-            continue;
-        }
-
-        // Compute scores using FULL multisets (Python: matched_length = counter(intersection))
-        let full_intersection_mset = multisets_intersector(&query_mset, rule_mset);
-        let matched_length: usize = full_intersection_mset.values().sum();
-        if matched_length < rule.min_matched_length {
-            continue;
-        }
-        let qset_len: usize = query_mset.values().sum();
-        let iset_len: usize = rule_mset.values().sum();
-
-        if qset_len == 0 || iset_len == 0 {
-            continue;
-        }
-
-        let union_len = qset_len + iset_len - matched_length;
-        let resemblance = matched_length as f64 / union_len as f64;
-        let containment = matched_length as f64 / iset_len as f64;
-
-        // Check minimum_containment (Python: match_set.py:429-433)
-        // Rules with minimum_coverage require a minimum containment ratio
-        let minimum_containment = rule.minimum_coverage.map(|mc| mc as f64 / 100.0);
-        if let Some(min_cont) = minimum_containment
-            && containment < min_cont
-        {
-            continue;
-        }
-
-        let (score_vec_rounded, score_vec_full) =
-            build_score_vectors(resemblance, containment, matched_length, rid);
-
-        if high_resemblance
-            && (!score_vec_rounded.is_highly_resemblant || !score_vec_full.is_highly_resemblant)
-        {
-            continue;
-        }
-
-        sortable_candidates.push(Candidate {
-            score_vec_rounded,
-            score_vec_full,
-            rid,
-            rule,
-            high_set_intersection,
-        });
-    }
-
-    sortable_candidates = filter_dupes(sortable_candidates);
-
-    sortable_candidates.sort_by(|a, b| b.cmp(a));
-    sortable_candidates.truncate(top_n);
-
-    sortable_candidates
 }
 
 #[cfg(test)]
