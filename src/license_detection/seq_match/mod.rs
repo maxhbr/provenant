@@ -22,8 +22,8 @@ mod matching;
 #[cfg(test)]
 mod gfdl_debug_test;
 
-pub use candidates::{Candidate, compute_candidates_with_msets};
-pub use matching::seq_match_with_candidates;
+pub(crate) use candidates::select_seq_candidates;
+pub(crate) use matching::seq_match_with_candidates;
 
 use crate::license_detection::models::MatcherKind;
 
@@ -154,7 +154,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(!matches.is_empty());
@@ -178,7 +178,7 @@ mod tests {
         let text = "license copyright";
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert_eq!(matches[0].license_expression_spdx.as_deref(), Some("MIT"));
@@ -198,7 +198,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(
@@ -218,7 +218,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(matches.is_empty());
@@ -240,7 +240,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(
@@ -259,7 +259,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(
@@ -300,7 +300,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(!matches.is_empty(), "Should find matches");
@@ -344,7 +344,7 @@ mod tests {
         let query = Query::from_extracted_text(text, &index, false).unwrap();
         let query_run = query.whole_query_run();
 
-        let candidates = compute_candidates_with_msets(&index, &query_run, false, 50);
+        let candidates = select_seq_candidates(&index, &query_run, false, 50);
         let matches = seq_match_with_candidates(&index, &query_run, &candidates);
 
         assert!(!matches.is_empty(), "Should find partial matches");
