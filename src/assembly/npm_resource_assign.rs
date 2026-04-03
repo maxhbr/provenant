@@ -56,6 +56,10 @@ fn is_first_level_node_modules_str(path: &str, root: &str) -> bool {
 }
 
 fn strip_root_prefix<'a>(path: &'a str, root: &str) -> Option<&'a str> {
+    if root.is_empty() {
+        return Some(path);
+    }
+
     if path == root {
         return Some("");
     }

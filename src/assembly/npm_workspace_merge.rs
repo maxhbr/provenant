@@ -723,6 +723,10 @@ fn find_nearest_member_dir(path: &str, member_dirs: &HashMap<String, String>) ->
 }
 
 fn strip_root_prefix<'a>(path: &'a str, root: &str) -> Option<&'a str> {
+    if root.is_empty() {
+        return Some(path);
+    }
+
     if path == root {
         return Some("");
     }
