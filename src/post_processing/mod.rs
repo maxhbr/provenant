@@ -181,13 +181,12 @@ pub(crate) fn create_output(
     if needs_classification && let Some(classification_context) = classification_context.as_ref() {
         apply_file_classification(&mut files, classification_context);
     }
-    let output_index_mode = if context.options.include_summary
-        || context.options.include_license_clarity_score
-    {
-        OutputIndexMode::Full
-    } else {
-        OutputIndexMode::KeyFilesOnly
-    };
+    let output_index_mode =
+        if context.options.include_summary || context.options.include_license_clarity_score {
+            OutputIndexMode::Full
+        } else {
+            OutputIndexMode::KeyFilesOnly
+        };
     let output_indexes = build_output_indexes(
         &files,
         classification_context.as_ref(),
@@ -1476,8 +1475,11 @@ fn classify_file(
     let path_parent = parent_dir(path);
     let is_manifest = file.file_type == FileType::File
         && (!file.package_data.is_empty() || is_manifest_file(&file.path));
-    let is_scan_root_top_level =
-        is_scan_top_level(path, &classification_context.scan_roots, &classification_context.scan_root_ancestors);
+    let is_scan_root_top_level = is_scan_top_level(
+        path,
+        &classification_context.scan_roots,
+        &classification_context.scan_root_ancestors,
+    );
     let is_referenced = file.for_packages.iter().any(|uid| {
         classification_context
             .package_file_references
@@ -1603,7 +1605,10 @@ fn build_package_roots(packages: &[Package]) -> HashMap<String, String> {
     let mut roots = HashMap::new();
     for package in packages {
         if let Some(root) = package_root(package) {
-            roots.insert(package.package_uid.clone(), root.to_string_lossy().into_owned());
+            roots.insert(
+                package.package_uid.clone(),
+                root.to_string_lossy().into_owned(),
+            );
         }
     }
     roots

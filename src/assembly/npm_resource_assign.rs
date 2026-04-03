@@ -13,7 +13,12 @@ pub fn assign_npm_package_resources(files: &mut [FileInfo], packages: &[Package]
                 .datafile_paths
                 .first()
                 .and_then(|path| Path::new(path).parent())
-                .map(|root| (root.to_string_lossy().into_owned(), package.package_uid.clone()))
+                .map(|root| {
+                    (
+                        root.to_string_lossy().into_owned(),
+                        package.package_uid.clone(),
+                    )
+                })
         })
         .collect();
 
@@ -25,7 +30,10 @@ pub fn assign_npm_package_resources(files: &mut [FileInfo], packages: &[Package]
     }
 }
 
-fn find_nearest_package_owner(path: &str, package_roots: &HashMap<String, String>) -> Option<String> {
+fn find_nearest_package_owner(
+    path: &str,
+    package_roots: &HashMap<String, String>,
+) -> Option<String> {
     let file_dir = parent_dir(path);
     let mut current = Some(file_dir);
 
