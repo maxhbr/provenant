@@ -594,7 +594,12 @@ pub(crate) fn compute_fixture_summary(
 
     let classification_context = build_classification_context(&files, &packages);
     apply_file_classification(&mut files, &classification_context);
-    let indexes = build_output_indexes(&files, Some(&classification_context), false);
+    let indexes = build_output_indexes(
+        &files,
+        Some(&classification_context),
+        false,
+        OutputIndexMode::Full,
+    );
     promote_package_metadata_from_key_files(&files, &mut packages, &indexes);
 
     serde_json::to_value(

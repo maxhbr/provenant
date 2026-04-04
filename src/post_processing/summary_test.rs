@@ -66,7 +66,12 @@ fn key_file_license_clues_feed_summary_without_mutating_package_license_provenan
 
     let classification_context = build_classification_context(&files, &packages);
     apply_file_classification(&mut files, &classification_context);
-    let indexes = build_output_indexes(&files, Some(&classification_context), false);
+    let indexes = build_output_indexes(
+        &files,
+        Some(&classification_context),
+        false,
+        OutputIndexMode::Full,
+    );
     promote_package_metadata_from_key_files(&files, &mut packages, &indexes);
     let summary = compute_summary(&files, &packages).expect("summary exists");
 
@@ -154,7 +159,12 @@ fn manifest_declared_license_survives_into_package_and_summary() {
 
     let classification_context = build_classification_context(&files, &packages);
     apply_file_classification(&mut files, &classification_context);
-    let indexes = build_output_indexes(&files, Some(&classification_context), false);
+    let indexes = build_output_indexes(
+        &files,
+        Some(&classification_context),
+        false,
+        OutputIndexMode::Full,
+    );
     promote_package_metadata_from_key_files(&files, &mut packages, &indexes);
     let summary = compute_summary(&files, &packages).expect("summary exists");
 
@@ -1172,7 +1182,7 @@ fn compute_score_mode_ignores_package_declared_license_without_key_file_license_
         end_line: 1,
     }];
     let files = vec![package_json];
-    let indexes = build_output_indexes(&files, None, false);
+    let indexes = build_output_indexes(&files, None, false, OutputIndexMode::Full);
     let summary = compute_summary_with_options(&files, &[package], &indexes, false, true)
         .expect("score-only summary exists");
     let score = summary.license_clarity_score.expect("clarity exists");
@@ -1195,7 +1205,7 @@ fn compute_score_mode_without_license_text_returns_zero_with_copyright_only() {
         end_line: 1,
     }];
     let files = vec![package_json];
-    let indexes = build_output_indexes(&files, None, false);
+    let indexes = build_output_indexes(&files, None, false, OutputIndexMode::Full);
     let summary = compute_summary_with_options(&files, &[package], &indexes, false, true)
         .expect("score-only summary exists");
     assert_eq!(summary.license_clarity_score.unwrap().score, 0);
@@ -1213,7 +1223,7 @@ fn compute_score_mode_without_license_or_copyright_returns_zero() {
     package_json.is_top_level = true;
     package_json.for_packages = vec![package.package_uid.clone()];
     let files = vec![package_json];
-    let indexes = build_output_indexes(&files, None, false);
+    let indexes = build_output_indexes(&files, None, false, OutputIndexMode::Full);
     let summary = compute_summary_with_options(&files, &[package], &indexes, false, true)
         .expect("score-only summary exists");
     assert_eq!(summary.license_clarity_score.unwrap().score, 0);
@@ -1311,7 +1321,7 @@ fn compute_score_mode_uses_single_joined_expression_without_ambiguity() {
         detection_log: vec![],
     }];
     let files = vec![cargo, apache, mit];
-    let indexes = build_output_indexes(&files, None, false);
+    let indexes = build_output_indexes(&files, None, false, OutputIndexMode::Full);
     let summary = compute_summary_with_options(&files, &[], &indexes, false, true)
         .expect("score-only summary exists");
     let score = summary.license_clarity_score.expect("clarity exists");
@@ -1399,7 +1409,7 @@ fn compute_score_mode_does_not_treat_with_expression_as_covering_base_license() 
     }];
 
     let files = vec![manifest, gpl];
-    let indexes = build_output_indexes(&files, None, false);
+    let indexes = build_output_indexes(&files, None, false, OutputIndexMode::Full);
     let summary = compute_summary_with_options(&files, &[], &indexes, false, true)
         .expect("score-only summary exists");
 
@@ -1473,7 +1483,7 @@ fn compute_score_mode_scores_nested_manifest_key_file_without_copyright() {
         detection_log: vec![],
     }];
     let files = vec![pom, license];
-    let indexes = build_output_indexes(&files, None, false);
+    let indexes = build_output_indexes(&files, None, false, OutputIndexMode::Full);
     let summary = compute_summary_with_options(&files, &[], &indexes, false, true)
         .expect("score-only summary exists");
     assert_eq!(
