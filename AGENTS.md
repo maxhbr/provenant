@@ -9,6 +9,7 @@ This guide provides essential information for AI coding agents working on the `P
 - **Architectural Decision Records**: [`docs/adr/`](docs/adr/) - Index of accepted design decisions and contributor guidance
 - **Beyond-Parity Features**: [`docs/improvements/`](docs/improvements/) - Index of parser and subsystem improvements beyond Python parity
 - **License Detection Architecture**: [`docs/LICENSE_DETECTION_ARCHITECTURE.md`](docs/LICENSE_DETECTION_ARCHITECTURE.md) - Current license detection architecture, embedded index flow, and maintainer workflow
+- **Maintainer Workflows**: [`xtask/README.md`](xtask/README.md) - Canonical list of Rust-based maintainer commands from `xtask/Cargo.toml`, including benchmarking, output comparison, golden-fixture maintenance, and artifact generation
 - **Supported Formats**: [`docs/SUPPORTED_FORMATS.md`](docs/SUPPORTED_FORMATS.md) - Auto-generated list of all supported package formats
 - **API Reference**: Run `cargo doc --open` - Complete API documentation
 - **This File**: Quick start, code style, common pitfalls
@@ -61,6 +62,15 @@ cargo run -- --json-pp output.json <dir> --ignore "*.git*" --ignore "target/*"
 - **Markdown checks**: `npm run check:docs`
 - **Markdown autofix**: `npm run fix:docs`
 - **URL validation**: `npm run validate:urls`
+
+## Maintainer Workflows (`xtask`)
+
+`xtask/Cargo.toml` defines the repository's custom Rust-based maintainer commands. Agents should treat [`xtask/README.md`](xtask/README.md) as the canonical workflow index and read the relevant section before running one of these commands.
+
+- **Benchmarking**: `benchmark-target` measures Provenant against an explicit local or remote target and writes artifacts under `.provenant/benchmarks/`. Use this for broad performance-sensitive changes.
+- **Behavior comparison**: `compare-outputs` runs Provenant and ScanCode on the same target, keeps raw outputs, and writes reduced comparison artifacts under `.provenant/compare-runs/`. Use this when validating parity or investigating output differences.
+- **Golden-fixture maintenance**: `update-parser-golden`, `update-copyright-golden`, and `update-license-golden` maintain parser, copyright, and license expectations. Follow the targeted workflows in [`xtask/README.md`](xtask/README.md) and [`docs/TESTING_STRATEGY.md`](docs/TESTING_STRATEGY.md).
+- **Generated artifacts and validation**: `generate-supported-formats`, `generate-index-artifact`, and `validate-urls` handle generated documentation, embedded license-index refreshes, and documentation/docstring URL validation.
 
 ## Running Single Tests
 
@@ -267,6 +277,7 @@ Canonical hook and CI definitions live in [`lefthook.yml`](lefthook.yml), [`pack
 - **Atomic progress**: Progress bar updates use atomic operations
 - **Release optimizations**: Release builds use additional optimization settings; consult the Cargo configuration and architecture docs for current details
 - **Benchmarking**: Run `cargo run --manifest-path xtask/Cargo.toml --bin benchmark-target -- --repo-url <url> --repo-ref <ref>` or `cargo run --manifest-path xtask/Cargo.toml --bin benchmark-target -- --target-path <path>` to measure performance on an explicit benchmark target. Use this after changes that could affect general performance. When committing performance-related changes, include the timing data in the commit message.
+- **Output comparison**: Run `cargo run --manifest-path xtask/Cargo.toml --bin compare-outputs -- --repo-url <url> --repo-ref <ref> --profile <profile>` or `cargo run --manifest-path xtask/Cargo.toml --bin compare-outputs -- --target-path <path> --profile <profile>` when you need raw and reduced Provenant-versus-ScanCode comparison artifacts for parity analysis.
 
 ## Common Pitfalls
 
