@@ -1,7 +1,8 @@
 # Provenant
 
-[![CI](https://github.com/mstykow/provenant/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/mstykow/provenant/actions/workflows/check.yml)
+[![Latest Release](https://img.shields.io/github/v/release/mstykow/provenant?display_name=tag)](https://github.com/mstykow/provenant/releases/latest)
 [![Crates.io](https://img.shields.io/crates/v/provenant-cli.svg)](https://crates.io/crates/provenant-cli)
+[![CI](https://github.com/mstykow/provenant/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/mstykow/provenant/actions/workflows/check.yml)
 [![License](https://img.shields.io/crates/l/provenant-cli.svg)](LICENSE)
 
 Provenant is a Rust-based code scanner for licenses, package metadata, file metadata, and related provenance data. It is built as an independent Rust implementation for ScanCode-aligned workflows, with a strong focus on correctness, feature parity, safe static parsing, and native execution.
