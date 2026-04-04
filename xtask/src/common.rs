@@ -38,7 +38,7 @@ impl TargetSource {
 impl ScanProfile {
     pub fn args(self) -> &'static [&'static str] {
         match self {
-            Self::Common => &["-clupe", "--strip-root"],
+            Self::Common => &["-clupe", "--system-package", "--strip-root"],
             Self::Licenses => &["-l", "--strip-root"],
             Self::Packages => &["-p", "--strip-root"],
         }

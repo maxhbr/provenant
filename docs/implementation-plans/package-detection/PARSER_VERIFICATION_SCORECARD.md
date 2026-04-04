@@ -24,8 +24,9 @@ cargo run --manifest-path xtask/Cargo.toml --bin compare-outputs -- --target-pat
 
 Method rules:
 
-- Run parser-family comparisons with `--profile common`, not `--profile packages`, so package extraction is always evaluated alongside license, copyright, email, and URL detection.
+- Run parser-family comparisons with `--profile common`, not `--profile packages`, so package extraction is always evaluated alongside installed-package DB coverage, license, copyright, email, and URL detection.
 - Fix issues where **ScanCode is better than Provenant**.
+- Do **not** mark a row `🟢 Verified` while any ScanCode-better deltas remain unresolved for that target. Treat `comparison_status: potential_regressions_detected` as a triage-required signal, not an automatic failure: each such delta must be reviewed and either fixed or documented as not actually worse before the row becomes `🟢 Verified`.
 - Keep and document differences where **Provenant is better than ScanCode**.
 - Do **not** treat normalization improvements as regressions when Provenant is more correct, for example preserving `René` instead of degrading to `Rene`. Parity is the bottom line, not the upper limit.
 - When a fix touches shared detection logic, run the relevant regression suites for that subsystem. For example, copyright-detection changes should rerun the copyright goldens; license-detection changes should rerun the license goldens; parser behavior fixes should rerun the narrow parser tests and any affected compare targets.
@@ -34,8 +35,8 @@ Method rules:
 
 ## Status model
 
-- `⚪ Planned` — candidate targets are listed, but no compare run is recorded here yet.
-- `🟢 Verified` — at least one representative compare target has been run and recorded here.
+- `⚪ Planned` — candidate targets are listed, or compare runs exist, but verification work is not complete yet.
+- `🟢 Verified` — at least one representative compare target has been run, any ScanCode-better findings for that target were fixed or triaged as not actually worse, and the verification is recorded here.
 
 For families that span materially different implemented surfaces, **Recorded verification** should name the verified surface explicitly, for example `source manifest`, `lockfile`, `archive`, `installed DB`, `compiled metadata`, or `rootfs artifact`.
 
@@ -110,7 +111,7 @@ When a parser family is verified with `compare-outputs`:
 2. Fix the places where ScanCode is better.
 3. Keep and document the places where Provenant is better.
 4. Record the exact repository or artifact source, resolved ref or snapshot identity, and verified surface in **Recorded verification**.
-5. Update the row directly from `⚪ Planned` to `🟢 Verified` when the work is done.
+5. Update the row directly from `⚪ Planned` to `🟢 Verified` only after no unresolved ScanCode-better deltas remain for that target; keep runs that still need fixes or triage as `⚪ Planned`.
 6. Add or update focused automated tests for any regression fixed during that work, including golden tests when that is the right durable coverage.
 
 If a family is best tested on extracted package artifacts instead of Git repositories, keep the candidate as an artifact-style target here and use `compare-outputs --target-path` when the actual run happens.

@@ -52,7 +52,7 @@ CLI arguments:
 - `--repo-url URL`: benchmark the given repository URL via the shared repo cache.
 - `--repo-ref REF`: required with `--repo-url`; commit SHA, tag, or branch to resolve and benchmark.
 - `--target-path PATH`: benchmark an existing local directory in place.
-- `--profile common`: convenience shorthand for `-clupe --strip-root`.
+- `--profile common`: convenience shorthand for `-clupe --system-package --strip-root`.
 - `--profile licenses`: convenience shorthand for `-l --strip-root`.
 - `--profile packages`: convenience shorthand for `-p --strip-root`.
 - Pass either a supported `--profile` or explicit benchmark scan flags after `--`.
@@ -122,7 +122,7 @@ CLI arguments:
 - `--repo-url URL`: compare the given repository URL via the shared repo cache.
 - `--repo-ref REF`: required with `--repo-url`; commit SHA, tag, or branch to resolve and compare.
 - `--target-path PATH`: compare an existing local directory in place.
-- `--profile common`: convenience shorthand for `-clupe --strip-root`.
+- `--profile common`: convenience shorthand for `-clupe --system-package --strip-root`.
 - `--profile licenses`: convenience shorthand for `-l --strip-root`.
 - `--profile packages`: convenience shorthand for `-p --strip-root`.
 - Pass either a supported `--profile` or explicit shared scan flags after `--`.
@@ -160,6 +160,7 @@ Important files:
 - The command keeps the full raw scanner outputs; it does **not** stream giant machine-readable payloads to stdout.
 - Stdout is reserved for progress, a reduced summary table, and the saved artifact paths.
 - ScanCode currently runs via Docker on all platforms for this workflow because that is the reproducible runtime path verified in this repository.
+- `compare-outputs` passes the same shared scan args to both scanners. The `common` profile includes installed package database coverage, which is usually a no-op on ordinary source repositories but matters for extracted rootfs/container trees and other artifact targets.
 - `--repo-url` mode requires `--repo-ref`; the command records both the requested ref and the resolved full commit SHA in `run-manifest.json`.
 - Repo URL runs reuse cached git objects from `.provenant/repo-cache/`, and the temporary detached checkout is removed after the run so compare artifacts do not retain duplicate full repository trees.
 - Repo URL runs also reuse cached raw ScanCode artifacts from `.provenant/scancode-cache/` when the resolved target commit, ScanCode runtime identity, and effective ScanCode scan args are unchanged.
