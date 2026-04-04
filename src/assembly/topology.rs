@@ -8,6 +8,7 @@ use super::cargo_workspace_merge::{
     CargoWorkspaceDomain, CargoWorkspaceRootHint, apply_cargo_workspace_domain,
     collect_cargo_workspace_hints, plan_cargo_workspace_domains,
 };
+use super::hackage_merge;
 use super::npm_workspace_merge::{
     NpmWorkspaceDomain, NpmWorkspaceRootHint, apply_npm_workspace_domain,
     collect_npm_workspace_hints, plan_npm_workspace_domains,
@@ -32,9 +33,19 @@ pub(super) struct PixiDomain {
     root_dir_file_indices: Vec<usize>,
 }
 
+pub(super) struct HackageProjectHint {
+    root_dir: PathBuf,
+}
+
+pub(super) struct HackageProjectDomain {
+    root_dir: PathBuf,
+    root_dir_file_indices: Vec<usize>,
+}
+
 pub(super) enum TopologyHint {
     CargoWorkspaceRoot(CargoWorkspaceRootHint),
     GoWorkspaceRoot(GoWorkspaceRootHint),
+    HackageProject(HackageProjectHint),
     NpmWorkspaceRoot(NpmWorkspaceRootHint),
     PixiRoot(PixiRootHint),
 }
@@ -42,6 +53,7 @@ pub(super) enum TopologyHint {
 pub(super) enum TopologyDomain {
     CargoWorkspace(CargoWorkspaceDomain),
     GoWorkspace(GoWorkspaceDomain),
+    HackageProject(HackageProjectDomain),
     NpmWorkspace(NpmWorkspaceDomain),
     Pixi(PixiDomain),
 }
@@ -50,6 +62,7 @@ pub(super) struct TopologyPlan {
     domains: Vec<TopologyDomain>,
     claimed_cargo_dirs: HashSet<PathBuf>,
     claimed_go_dirs: HashSet<PathBuf>,
+    claimed_hackage_dirs: HashSet<PathBuf>,
     claimed_npm_dirs: HashSet<PathBuf>,
     claimed_pixi_dirs: HashSet<PathBuf>,
 }
@@ -68,6 +81,11 @@ impl TopologyPlan {
                 .map(TopologyHint::GoWorkspaceRoot),
         );
         hints.extend(
+            collect_hackage_project_hints(files)
+                .into_iter()
+                .map(TopologyHint::HackageProject),
+        );
+        hints.extend(
             collect_npm_workspace_hints(files)
                 .into_iter()
                 .map(TopologyHint::NpmWorkspaceRoot),
@@ -81,6 +99,7 @@ impl TopologyPlan {
         let mut domains = Vec::new();
         let mut claimed_cargo_dirs = HashSet::new();
         let mut claimed_go_dirs = HashSet::new();
+        let mut claimed_hackage_dirs = HashSet::new();
         let mut claimed_npm_dirs = HashSet::new();
         let mut claimed_pixi_dirs = HashSet::new();
 
@@ -89,6 +108,7 @@ impl TopologyPlan {
             .filter_map(|hint| match hint {
                 TopologyHint::CargoWorkspaceRoot(hint) => Some(hint),
                 TopologyHint::GoWorkspaceRoot(_) => None,
+                TopologyHint::HackageProject(_) => None,
                 TopologyHint::NpmWorkspaceRoot(_) => None,
                 TopologyHint::PixiRoot(_) => None,
             })
@@ -105,6 +125,7 @@ impl TopologyPlan {
             .filter_map(|hint| match hint {
                 TopologyHint::CargoWorkspaceRoot(_) => None,
                 TopologyHint::GoWorkspaceRoot(hint) => Some(hint),
+                TopologyHint::HackageProject(_) => None,
                 TopologyHint::NpmWorkspaceRoot(_) => None,
                 TopologyHint::PixiRoot(_) => None,
             })
@@ -115,11 +136,28 @@ impl TopologyPlan {
             domains.push(TopologyDomain::GoWorkspace(domain));
         }
 
+        let hackage_project_hints: Vec<_> = hints
+            .iter()
+            .filter_map(|hint| match hint {
+                TopologyHint::CargoWorkspaceRoot(_) => None,
+                TopologyHint::GoWorkspaceRoot(_) => None,
+                TopologyHint::HackageProject(hint) => Some(hint),
+                TopologyHint::NpmWorkspaceRoot(_) => None,
+                TopologyHint::PixiRoot(_) => None,
+            })
+            .collect();
+
+        for domain in plan_hackage_project_domains(dir_files, &hackage_project_hints) {
+            claimed_hackage_dirs.insert(domain.root_dir.clone());
+            domains.push(TopologyDomain::HackageProject(domain));
+        }
+
         let npm_workspace_hints: Vec<_> = hints
             .iter()
             .filter_map(|hint| match hint {
                 TopologyHint::CargoWorkspaceRoot(_) => None,
                 TopologyHint::GoWorkspaceRoot(_) => None,
+                TopologyHint::HackageProject(_) => None,
                 TopologyHint::NpmWorkspaceRoot(hint) => Some(hint),
                 TopologyHint::PixiRoot(_) => None,
             })
@@ -136,6 +174,7 @@ impl TopologyPlan {
             .filter_map(|hint| match hint {
                 TopologyHint::CargoWorkspaceRoot(_) => None,
                 TopologyHint::GoWorkspaceRoot(_) => None,
+                TopologyHint::HackageProject(_) => None,
                 TopologyHint::NpmWorkspaceRoot(_) => None,
                 TopologyHint::PixiRoot(hint) => Some(hint),
             })
@@ -150,6 +189,7 @@ impl TopologyPlan {
             domains,
             claimed_cargo_dirs,
             claimed_go_dirs,
+            claimed_hackage_dirs,
             claimed_npm_dirs,
             claimed_pixi_dirs,
         }
@@ -178,6 +218,10 @@ impl TopologyPlan {
 
         if config.datasource_ids.contains(&DatasourceId::PixiToml) {
             return self.claimed_pixi_dirs.contains(parent_dir);
+        }
+
+        if config.datasource_ids.contains(&DatasourceId::HackageCabal) {
+            return self.claimed_hackage_dirs.contains(parent_dir);
         }
 
         if !config
@@ -209,6 +253,15 @@ impl TopologyPlan {
 
                     apply_directory_merge_result(files, packages, dependencies, result);
                 }
+                TopologyDomain::HackageProject(domain) => {
+                    let results = hackage_merge::assemble_hackage_packages(
+                        files,
+                        &domain.root_dir_file_indices,
+                    );
+                    for result in results {
+                        apply_directory_merge_result(files, packages, dependencies, result);
+                    }
+                }
                 TopologyDomain::Pixi(domain) => {
                     let Some(result) = sibling_merge::assemble_siblings(
                         pixi_assembler_config(),
@@ -237,6 +290,7 @@ impl TopologyPlan {
                     apply_cargo_workspace_domain(domain, files, packages, dependencies);
                 }
                 TopologyDomain::GoWorkspace(_)
+                | TopologyDomain::HackageProject(_)
                 | TopologyDomain::NpmWorkspace(_)
                 | TopologyDomain::Pixi(_) => {}
             }
@@ -253,6 +307,7 @@ impl TopologyPlan {
             match domain {
                 TopologyDomain::CargoWorkspace(_)
                 | TopologyDomain::GoWorkspace(_)
+                | TopologyDomain::HackageProject(_)
                 | TopologyDomain::Pixi(_) => {}
                 TopologyDomain::NpmWorkspace(domain) => {
                     apply_npm_workspace_domain(domain, files, packages, dependencies);
@@ -324,6 +379,40 @@ fn collect_pixi_root_hints(files: &[FileInfo]) -> Vec<PixiRootHint> {
     hints
 }
 
+fn collect_hackage_project_hints(files: &[FileInfo]) -> Vec<HackageProjectHint> {
+    let mut seen = HashSet::new();
+    let mut hints = Vec::new();
+
+    for file in files {
+        let path = Path::new(&file.path);
+        let file_name = path.file_name().and_then(|name| name.to_str());
+        if !matches!(file_name, Some("cabal.project" | "stack.yaml")) {
+            continue;
+        }
+
+        let has_project_surface = file.package_data.iter().any(|pkg_data| {
+            matches!(
+                pkg_data.datasource_id,
+                Some(DatasourceId::HackageCabalProject | DatasourceId::HackageStackYaml)
+            )
+        });
+        if !has_project_surface {
+            continue;
+        }
+
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        let root_dir = parent.to_path_buf();
+        if seen.insert(root_dir.clone()) {
+            hints.push(HackageProjectHint { root_dir });
+        }
+    }
+
+    hints.sort_by(|left, right| left.root_dir.cmp(&right.root_dir));
+    hints
+}
+
 fn plan_go_workspace_domains(
     dir_files: &HashMap<PathBuf, Vec<usize>>,
     workspace_hints: &[&GoWorkspaceRootHint],
@@ -359,6 +448,28 @@ fn plan_pixi_domains(
         }
 
         domains.push(PixiDomain {
+            root_dir: hint.root_dir.clone(),
+            root_dir_file_indices,
+        });
+    }
+
+    domains.sort_by(|left, right| left.root_dir.cmp(&right.root_dir));
+    domains
+}
+
+fn plan_hackage_project_domains(
+    dir_files: &HashMap<PathBuf, Vec<usize>>,
+    workspace_hints: &[&HackageProjectHint],
+) -> Vec<HackageProjectDomain> {
+    let mut domains = Vec::new();
+
+    for hint in workspace_hints {
+        let root_dir_file_indices = dir_files.get(&hint.root_dir).cloned().unwrap_or_default();
+        if root_dir_file_indices.is_empty() {
+            continue;
+        }
+
+        domains.push(HackageProjectDomain {
             root_dir: hint.root_dir.clone(),
             root_dir_file_indices,
         });
