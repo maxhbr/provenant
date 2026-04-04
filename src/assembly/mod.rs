@@ -17,6 +17,7 @@ mod python_requirements_assign;
 mod ruby_resource_assign;
 mod sibling_merge;
 mod swift_merge;
+mod topology;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -93,6 +94,7 @@ pub fn assemble(files: &mut [FileInfo]) -> AssemblyResult {
     let mut dependencies = Vec::new();
 
     let dir_files = group_files_by_directory(files);
+    let topology_plan = topology::TopologyPlan::build(files, &dir_files);
 
     for file_indices in dir_files.values() {
         let mut groups: HashSet<DatasourceId> = HashSet::new();
@@ -112,6 +114,10 @@ pub fn assemble(files: &mut [FileInfo]) -> AssemblyResult {
                 .get(&config_key)
                 .copied()
                 .expect("assembler config must exist");
+
+            if topology_plan.claims_directory_assembly(config, file_indices, files) {
+                continue;
+            }
 
             if let Some(special_merger) = assemblers::special_directory_merger_for(config_key) {
                 let results = special_merger.run(files, file_indices);
@@ -170,7 +176,7 @@ pub fn assemble(files: &mut [FileInfo]) -> AssemblyResult {
         }
     }
 
-    assemblers::run_post_assembly_passes(files, &mut packages, &mut dependencies);
+    assemblers::run_post_assembly_passes(files, &mut packages, &mut dependencies, &topology_plan);
     hoist_unassembled_file_dependencies(files, &mut dependencies);
 
     for package in &mut packages {
