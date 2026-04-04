@@ -10,7 +10,6 @@ license = "Apache-2.0"
 keywords = ["scancode", "sbom", "license", "provenance", "compliance"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
-authors = ["Maxim Stykow", "Adrian Braemer"]
 # Include only files needed to build from source
 include = [
     "src/**/*",

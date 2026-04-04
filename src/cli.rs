@@ -53,7 +53,7 @@ fn parse_license_policy_arg(value: &str) -> Result<String, String> {
 
 #[derive(Parser, Debug)]
 #[command(
-    author,
+    author = "The Provenant contributors",
     version = env!("CARGO_PKG_VERSION"),
     long_version = concat!(
         env!("CARGO_PKG_VERSION"),
