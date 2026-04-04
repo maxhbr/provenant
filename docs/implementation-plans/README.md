@@ -26,6 +26,9 @@ These topics are implemented. Some remain useful as completed historical records
 - **[PARSER_PLAN.md](package-detection/PARSER_PLAN.md)** - Individual file format parser implementations
   - Status: 🟢 Complete — planned production parser/recognizer coverage is implemented; deferred and future-scope items are documented in [PARSER_PLAN.md](package-detection/PARSER_PLAN.md)
 
+- **[PARSER_VERIFICATION_SCORECARD.md](package-detection/PARSER_VERIFICATION_SCORECARD.md)** - Maintained parser-family compare target checklist and verification tracker
+  - Status: 🟢 Canonical reference — use this for current end-to-end parser verification targets and to record which implemented parser families have already been compared against ScanCode
+
 - **[ASSEMBLY_PLAN.md](package-detection/ASSEMBLY_PLAN.md)** - Package assembly roadmap
   - Status: 🟢 Complete — All phases done (sibling merge, nested merge, workspace assembly, file reference resolution)
 
@@ -119,4 +122,4 @@ These implementation plans complement the **evergreen** documentation in [`docs/
 | `adr/`                              | Design decisions made during implementation       |
 | `improvements/`                     | Beyond-parity features documented here            |
 
-Once a feature is complete, relevant architectural decisions move to ADRs, and the implementation plan should either be archived, clearly marked historical, or redirected to the evergreen document that now owns the topic. Unless a file is explicitly labeled as a maintained checklist/reference (for example `PARITY_SCORECARD.md`), treat completed plans here as non-canonical historical records.
+Once a feature is complete, relevant architectural decisions move to ADRs, and the implementation plan should either be archived, clearly marked historical, or redirected to the evergreen document that now owns the topic. Unless a file is explicitly labeled as a maintained checklist/reference (for example `PARITY_SCORECARD.md` or `package-detection/PARSER_VERIFICATION_SCORECARD.md`), treat completed plans here as non-canonical historical records.

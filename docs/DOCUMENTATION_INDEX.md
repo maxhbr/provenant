@@ -82,7 +82,7 @@ docs/
 → [improvements/README.md](improvements/README.md)
 
 **...track implementation quality and behavior**
-→ [TESTING_STRATEGY.md](TESTING_STRATEGY.md)
+→ [TESTING_STRATEGY.md](TESTING_STRATEGY.md) for testing philosophy, plus [implementation-plans/package-detection/PARSER_VERIFICATION_SCORECARD.md](implementation-plans/package-detection/PARSER_VERIFICATION_SCORECARD.md) for parser-family compare targets and verification tracking
 
 **...cut a release**
 → [RELEASING.md](RELEASING.md)
