@@ -9,6 +9,7 @@ This index helps you find the right documentation for your needs.
 - **[SCANCODE_COMPARISON.md](SCANCODE_COMPARISON.md)** - Provenant's relationship to ScanCode Toolkit and high-level comparison notes
 - **[SUPPORTED_FORMATS.md](SUPPORTED_FORMATS.md)** - Generated support matrix for package and package-adjacent detection surfaces
 - **[NOTICE](../NOTICE)** - Upstream attribution and licensing details for included ScanCode-derived materials
+- **[ACKNOWLEDGEMENTS.md](../ACKNOWLEDGEMENTS.md)** - Project support and acknowledgements, including employer and infrastructure support
 - **[SECURITY.md](../SECURITY.md)** - Security reporting guidance
 
 ## For Contributors
@@ -84,6 +85,9 @@ docs/
 
 **...review upstream attribution or the code/data licensing split**
 → [NOTICE](../NOTICE)
+
+**...review project support and acknowledgements**
+→ [ACKNOWLEDGEMENTS.md](../ACKNOWLEDGEMENTS.md)
 
 **...review security reporting guidance**
 → [SECURITY.md](../SECURITY.md)

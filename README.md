@@ -208,6 +208,12 @@ cargo run --manifest-path xtask/Cargo.toml --bin generate-index-artifact
 
 For normal local development, `npm run setup` is the one-command bootstrap path. `npm run hooks:install` is available if you need to re-install hooks manually. These setup and helper commands are currently shell-oriented, so Windows contributors should prefer running them inside WSL2.
 
+## Support and Acknowledgements
+
+Provenant is an independent open source project developed by its contributors. Its development has been made possible in substantial part by support from [TNG Technology Consulting GmbH](https://www.tngtech.com/), including paid contributor time on internal non-client work, compute and inference resources provided by TNG's internal GPU cluster, Skainet, and company-funded usage of third-party AI models. Without that support, Provenant would not have been possible in its current scope and form.
+
+A substantial portion of Provenant's development has been contributed by people working on the project as TNG employees, and work on the project has been done both during TNG-supported work time and during personal unpaid time. For a fuller acknowledgement of project support, see [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md).
+
 ## Upstream Data and Attribution
 
 `Provenant` is an independent Rust implementation inspired by [ScanCode Toolkit](https://github.com/aboutcode-org/scancode-toolkit). It uses the upstream ScanCode Toolkit project by nexB Inc. and the AboutCode community as a reference for compatibility, behavior, and parity validation, and it continues to rely on the upstream ScanCode license and rule data maintained by that ecosystem. Provenant code is licensed under Apache-2.0; included ScanCode-derived rule and license data remains subject to upstream attribution and CC-BY-4.0 terms where applicable. We are grateful to nexB Inc. and the AboutCode community for the reference implementation and the extensive license and copyright research behind it. See [`NOTICE`](NOTICE) for preserved upstream attribution notices applicable to materials included in this repository and to distributions that include ScanCode-derived data.

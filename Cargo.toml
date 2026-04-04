@@ -23,6 +23,7 @@ include = [
     "/resources/license_detection/license_index.zst",
     "/Cargo.toml",
     "/Cargo.lock",
+    "/ACKNOWLEDGEMENTS.md",
     "/README.md",
     "/CITATION.cff",
     "/LICENSE",
