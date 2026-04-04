@@ -12,20 +12,33 @@ use super::npm_workspace_merge::{
     NpmWorkspaceDomain, NpmWorkspaceRootHint, apply_npm_workspace_domain,
     collect_npm_workspace_hints, plan_npm_workspace_domains,
 };
+use super::{ASSEMBLERS, DirectoryMergeOutput, sibling_merge};
+
+pub(super) struct GoWorkspaceRootHint {
+    root_dir: PathBuf,
+}
+
+pub(super) struct GoWorkspaceDomain {
+    root_dir: PathBuf,
+    root_dir_file_indices: Vec<usize>,
+}
 
 pub(super) enum TopologyHint {
     CargoWorkspaceRoot(CargoWorkspaceRootHint),
+    GoWorkspaceRoot(GoWorkspaceRootHint),
     NpmWorkspaceRoot(NpmWorkspaceRootHint),
 }
 
 pub(super) enum TopologyDomain {
     CargoWorkspace(CargoWorkspaceDomain),
+    GoWorkspace(GoWorkspaceDomain),
     NpmWorkspace(NpmWorkspaceDomain),
 }
 
 pub(super) struct TopologyPlan {
     domains: Vec<TopologyDomain>,
     claimed_cargo_dirs: HashSet<PathBuf>,
+    claimed_go_dirs: HashSet<PathBuf>,
     claimed_npm_dirs: HashSet<PathBuf>,
 }
 
@@ -38,6 +51,11 @@ impl TopologyPlan {
                 .map(TopologyHint::CargoWorkspaceRoot),
         );
         hints.extend(
+            collect_go_workspace_hints(files)
+                .into_iter()
+                .map(TopologyHint::GoWorkspaceRoot),
+        );
+        hints.extend(
             collect_npm_workspace_hints(files)
                 .into_iter()
                 .map(TopologyHint::NpmWorkspaceRoot),
@@ -45,12 +63,14 @@ impl TopologyPlan {
 
         let mut domains = Vec::new();
         let mut claimed_cargo_dirs = HashSet::new();
+        let mut claimed_go_dirs = HashSet::new();
         let mut claimed_npm_dirs = HashSet::new();
 
         let cargo_workspace_hints: Vec<_> = hints
             .iter()
             .filter_map(|hint| match hint {
                 TopologyHint::CargoWorkspaceRoot(hint) => Some(hint),
+                TopologyHint::GoWorkspaceRoot(_) => None,
                 TopologyHint::NpmWorkspaceRoot(_) => None,
             })
             .collect();
@@ -61,10 +81,25 @@ impl TopologyPlan {
             domains.push(TopologyDomain::CargoWorkspace(domain));
         }
 
+        let go_workspace_hints: Vec<_> = hints
+            .iter()
+            .filter_map(|hint| match hint {
+                TopologyHint::CargoWorkspaceRoot(_) => None,
+                TopologyHint::GoWorkspaceRoot(hint) => Some(hint),
+                TopologyHint::NpmWorkspaceRoot(_) => None,
+            })
+            .collect();
+
+        for domain in plan_go_workspace_domains(dir_files, &go_workspace_hints) {
+            claimed_go_dirs.insert(domain.root_dir.clone());
+            domains.push(TopologyDomain::GoWorkspace(domain));
+        }
+
         let npm_workspace_hints: Vec<_> = hints
             .iter()
             .filter_map(|hint| match hint {
                 TopologyHint::CargoWorkspaceRoot(_) => None,
+                TopologyHint::GoWorkspaceRoot(_) => None,
                 TopologyHint::NpmWorkspaceRoot(hint) => Some(hint),
             })
             .collect();
@@ -78,6 +113,7 @@ impl TopologyPlan {
         Self {
             domains,
             claimed_cargo_dirs,
+            claimed_go_dirs,
             claimed_npm_dirs,
         }
     }
@@ -99,6 +135,10 @@ impl TopologyPlan {
             return self.claimed_cargo_dirs.contains(parent_dir);
         }
 
+        if config.datasource_ids.contains(&DatasourceId::GoWork) {
+            return self.claimed_go_dirs.contains(parent_dir);
+        }
+
         if !config
             .datasource_ids
             .contains(&DatasourceId::NpmPackageJson)
@@ -107,6 +147,30 @@ impl TopologyPlan {
         }
 
         self.claimed_npm_dirs.contains(parent_dir)
+    }
+
+    pub(super) fn apply_directory_scoped_domains(
+        &self,
+        files: &mut [FileInfo],
+        packages: &mut Vec<Package>,
+        dependencies: &mut Vec<TopLevelDependency>,
+    ) {
+        for domain in &self.domains {
+            match domain {
+                TopologyDomain::GoWorkspace(domain) => {
+                    let Some(result) = sibling_merge::assemble_siblings(
+                        go_assembler_config(),
+                        files,
+                        &domain.root_dir_file_indices,
+                    ) else {
+                        continue;
+                    };
+
+                    apply_directory_merge_result(files, packages, dependencies, result);
+                }
+                TopologyDomain::CargoWorkspace(_) | TopologyDomain::NpmWorkspace(_) => {}
+            }
+        }
     }
 
     pub(super) fn apply_cargo_workspace_domains(
@@ -120,7 +184,7 @@ impl TopologyPlan {
                 TopologyDomain::CargoWorkspace(domain) => {
                     apply_cargo_workspace_domain(domain, files, packages, dependencies);
                 }
-                TopologyDomain::NpmWorkspace(_) => {}
+                TopologyDomain::GoWorkspace(_) | TopologyDomain::NpmWorkspace(_) => {}
             }
         }
     }
@@ -133,11 +197,91 @@ impl TopologyPlan {
     ) {
         for domain in &self.domains {
             match domain {
-                TopologyDomain::CargoWorkspace(_) => {}
+                TopologyDomain::CargoWorkspace(_) | TopologyDomain::GoWorkspace(_) => {}
                 TopologyDomain::NpmWorkspace(domain) => {
                     apply_npm_workspace_domain(domain, files, packages, dependencies);
                 }
             }
         }
     }
+}
+
+fn collect_go_workspace_hints(files: &[FileInfo]) -> Vec<GoWorkspaceRootHint> {
+    let mut seen = HashSet::new();
+    let mut hints = Vec::new();
+
+    for file in files {
+        let path = Path::new(&file.path);
+        if path.file_name().and_then(|name| name.to_str()) != Some("go.work") {
+            continue;
+        }
+
+        let has_go_work_data = file
+            .package_data
+            .iter()
+            .any(|pkg_data| pkg_data.datasource_id == Some(DatasourceId::GoWork));
+        if !has_go_work_data {
+            continue;
+        }
+
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        let root_dir = parent.to_path_buf();
+        if seen.insert(root_dir.clone()) {
+            hints.push(GoWorkspaceRootHint { root_dir });
+        }
+    }
+
+    hints.sort_by(|left, right| left.root_dir.cmp(&right.root_dir));
+    hints
+}
+
+fn plan_go_workspace_domains(
+    dir_files: &HashMap<PathBuf, Vec<usize>>,
+    workspace_hints: &[&GoWorkspaceRootHint],
+) -> Vec<GoWorkspaceDomain> {
+    let mut domains = Vec::new();
+
+    for hint in workspace_hints {
+        let root_dir_file_indices = dir_files.get(&hint.root_dir).cloned().unwrap_or_default();
+        if root_dir_file_indices.is_empty() {
+            continue;
+        }
+
+        domains.push(GoWorkspaceDomain {
+            root_dir: hint.root_dir.clone(),
+            root_dir_file_indices,
+        });
+    }
+
+    domains.sort_by(|left, right| left.root_dir.cmp(&right.root_dir));
+    domains
+}
+
+fn apply_directory_merge_result(
+    files: &mut [FileInfo],
+    packages: &mut Vec<Package>,
+    dependencies: &mut Vec<TopLevelDependency>,
+    result: DirectoryMergeOutput,
+) {
+    let (package, deps, affected_indices) = result;
+
+    if let Some(package) = package {
+        let package_uid = package.package_uid.clone();
+        for idx in &affected_indices {
+            if !files[*idx].for_packages.contains(&package_uid) {
+                files[*idx].for_packages.push(package_uid.clone());
+            }
+        }
+        packages.push(package);
+    }
+    dependencies.extend(deps);
+}
+
+fn go_assembler_config() -> &'static AssemblerConfig {
+    ASSEMBLERS
+        .iter()
+        .find(|config| config.datasource_ids.contains(&DatasourceId::GoWork))
+        .expect("Go assembler config must exist")
 }

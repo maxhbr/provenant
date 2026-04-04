@@ -143,6 +143,8 @@ pub fn assemble(files: &mut [FileInfo]) -> AssemblyResult {
         }
     }
 
+    topology_plan.apply_directory_scoped_domains(files, &mut packages, &mut dependencies);
+
     for config in ASSEMBLERS {
         if config.mode != AssemblyMode::SiblingMerge {
             continue;
