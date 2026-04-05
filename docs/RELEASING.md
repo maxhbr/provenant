@@ -105,7 +105,12 @@ That workflow:
   - `aarch64-apple-darwin`
   - `x86_64-pc-windows-msvc`
 - Separately verifies the embedded license index before building release artifacts
-- Packages each build as `.tar.gz` or `.zip`
+- Packages each build with platform-first asset names so archives sort by operating system on the release page:
+  - `provenant-linux-x86_64.tar.gz`
+  - `provenant-linux-aarch64.tar.gz`
+  - `provenant-macos-x86_64.tar.gz`
+  - `provenant-macos-aarch64.tar.gz`
+  - `provenant-windows-x86_64.zip`
 - Generates SHA256 checksum files
 - Creates a GitHub Release and uploads all generated assets
 
