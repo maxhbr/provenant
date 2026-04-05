@@ -592,11 +592,11 @@ pub(crate) fn compute_fixture_summary(
     let mut packages = assembly_result.packages;
     normalize_package_datafile_paths(&mut packages, &resolved_scan_root.normalize_root);
 
-    let classification_context = build_classification_context(&files, &packages);
-    apply_file_classification(&mut files, &classification_context);
-    let indexes = build_output_indexes(
+    let package_file_index = PackageFileIndex::build(&files, &packages);
+    apply_file_classification(&mut files, &package_file_index);
+    let indexes = OutputIndexes::build(
         &files,
-        Some(&classification_context),
+        Some(&package_file_index),
         false,
         OutputIndexMode::Full,
     );
