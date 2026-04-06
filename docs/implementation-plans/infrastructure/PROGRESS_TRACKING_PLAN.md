@@ -378,7 +378,6 @@ Implementation touched progress orchestration plus scanner/count integration and
 The scan summary follows Python's key structure while remaining aligned with Rust runtime output:
 
 ```text
-Scanning done.
 Summary:        <enabled scans> with <process count> process(es)
 Errors count:   <error count>
 Scan Speed:     <files/sec> files/sec. <bytes/sec>/sec.

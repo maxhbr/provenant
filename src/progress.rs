@@ -157,6 +157,13 @@ impl ScanProgress {
         self.start_phase("scan");
         self.scan_bar.set_length(total_files as u64);
         self.scan_bar.set_position(0);
+
+        if self.mode == ProgressMode::Default && !self.stderr_is_tty {
+            self.message(&format!(
+                "Scanning {total_files} {}...",
+                pluralize_files(total_files)
+            ));
+        }
     }
 
     pub fn file_completed(&self, path: &Path, bytes: u64, scan_errors: &[String]) {
@@ -173,8 +180,8 @@ impl ScanProgress {
         match self.mode {
             ProgressMode::Quiet => {}
             ProgressMode::Default => {
-                if has_error {
-                    self.error(&format!("Path: {}", path.to_string_lossy()));
+                if let Some(scan_error) = scan_errors.first() {
+                    self.error(&format_default_scan_error(path, scan_error));
                 }
             }
             ProgressMode::Verbose => {
@@ -195,7 +202,7 @@ impl ScanProgress {
 
         match self.mode {
             ProgressMode::Quiet => {}
-            ProgressMode::Default => self.error(&format!("Path: {}", path.to_string_lossy())),
+            ProgressMode::Default => self.error(&format_default_scan_error(path, err)),
             ProgressMode::Verbose => {
                 self.error(&format!("Path: {}", path.to_string_lossy()));
                 for line in err.lines() {
@@ -211,6 +218,9 @@ impl ScanProgress {
             self.scan_bar.finish_with_message("Scan complete!");
         } else {
             self.scan_bar.finish_and_clear();
+            if self.mode == ProgressMode::Default {
+                self.message("Scan complete.");
+            }
         }
     }
 
@@ -420,6 +430,45 @@ fn apply_default_log_filters(builder: &mut env_logger::Builder) {
     }
 }
 
+fn format_default_scan_error(path: &Path, err: &str) -> String {
+    let reason = concise_scan_error_reason(err);
+    format!("{reason}: {}", path.to_string_lossy())
+}
+
+fn concise_scan_error_reason(err: &str) -> String {
+    let first_line = err
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or("Scan failed");
+
+    if let Some((prefix, _)) = first_line.split_once(" at ")
+        && is_structured_error_prefix(prefix)
+    {
+        return prefix.to_string();
+    }
+
+    if let Some((prefix, _)) = first_line.split_once(": ")
+        && is_structured_error_prefix(prefix)
+    {
+        return prefix.to_string();
+    }
+
+    first_line.to_string()
+}
+
+fn is_structured_error_prefix(prefix: &str) -> bool {
+    let lowercase = prefix.to_ascii_lowercase();
+    lowercase.starts_with("failed to ")
+        || lowercase.ends_with(" failed")
+        || lowercase.starts_with("timeout ")
+        || lowercase.starts_with("processing interrupted")
+}
+
+fn pluralize_files(count: usize) -> &'static str {
+    if count == 1 { "file" } else { "files" }
+}
+
 fn pdf_oxide_font_log_filter() -> Option<LevelFilter> {
     should_filter_pdf_oxide_font_warnings().then_some(LevelFilter::Error)
 }
@@ -490,7 +539,6 @@ fn build_summary_messages(stats: &ScanStats, scan_start: &str, scan_end: &str) -
     };
 
     let mut lines = vec![
-        "Scanning done.".to_string(),
         format!("Summary:        {scan_names} with {processes} process(es)"),
         format!("Errors count:   {}", stats.error_count),
         format!(
@@ -601,9 +649,12 @@ fn num_cpus_for_display() -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        ScanStats, build_summary_messages, format_size, pdf_oxide_font_log_filter,
+        ScanStats, build_summary_messages, concise_scan_error_reason, format_default_scan_error,
+        format_size, pdf_oxide_font_log_filter, pluralize_files,
         should_filter_pdf_oxide_font_warnings_from,
     };
+
+    use std::path::Path;
 
     use log::LevelFilter;
 
@@ -702,5 +753,42 @@ mod tests {
         assert!(!should_filter_pdf_oxide_font_warnings_from(Some(
             "pdf_oxide::fonts::font_dict=warn"
         )));
+    }
+
+    #[test]
+    fn concise_scan_error_reason_keeps_high_level_failure_context() {
+        assert_eq!(
+            concise_scan_error_reason(
+                "Failed to read or parse package.json at \"fixtures/package.json\": key must be a string at line 1 column 3"
+            ),
+            "Failed to read or parse package.json"
+        );
+        assert_eq!(
+            concise_scan_error_reason("License detection failed: missing query token"),
+            "License detection failed"
+        );
+        assert_eq!(
+            concise_scan_error_reason("Processing interrupted due to timeout after 2.00 seconds"),
+            "Processing interrupted due to timeout after 2.00 seconds"
+        );
+    }
+
+    #[test]
+    fn default_scan_error_format_includes_reason_and_path() {
+        let formatted = format_default_scan_error(
+            Path::new("fixtures/package.json"),
+            "Failed to read or parse package.json at \"fixtures/package.json\": key must be a string at line 1 column 3",
+        );
+
+        assert_eq!(
+            formatted,
+            "Failed to read or parse package.json: fixtures/package.json"
+        );
+    }
+
+    #[test]
+    fn pluralize_files_uses_expected_labels() {
+        assert_eq!(pluralize_files(1), "file");
+        assert_eq!(pluralize_files(2), "files");
     }
 }

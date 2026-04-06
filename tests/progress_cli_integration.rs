@@ -81,7 +81,10 @@ fn default_mode_emits_summary_to_stderr() {
 
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Scanning done."));
+    assert!(stderr.contains("Scanning 1 file..."));
+    assert!(stderr.contains("Scan complete."));
+    assert!(stderr.contains("Summary:"));
+    assert!(!stderr.contains("Scanning done."));
 }
 
 #[test]
@@ -153,11 +156,15 @@ fn default_mode_keeps_parser_failures_concise_on_stderr() {
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Path:"),
+        stderr.contains("Failed to read or parse package.json:"),
+        "default mode should report a concise failure reason"
+    );
+    assert!(
+        stderr.contains("package.json"),
         "default mode should report the failing path"
     );
     assert!(
-        !stderr.contains("Failed to read or parse package.json"),
+        !stderr.contains("key must be a string at line 1 column 3"),
         "default mode should avoid duplicating parser failure details"
     );
 }
