@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 
 use crate::license_detection::expression::{
     LicenseExpression, parse_expression, simplify_expression,
@@ -7,6 +6,7 @@ use crate::license_detection::expression::{
 use crate::models::{
     DatasourceId, FileInfo, FileType, LicenseClarityScore, Package, Summary, Tallies, TallyEntry,
 };
+use crate::utils::path::{parent_dir, parent_dir_for_lookup};
 use crate::utils::spdx::combine_license_expressions;
 
 use super::output_indexes::OutputIndexes;
@@ -16,10 +16,73 @@ use super::summary_helpers::{
     remove_tally_values, summary_holder_from_copyright, summary_license_expression, unique,
 };
 use super::tallies::{
-    author_values, copyright_values, programming_language_values, summary_detected_license_values,
-    tally_file_values, tally_file_values_filtered,
+    author_values, build_tally_entries, copyright_values, programming_language_values,
+    summary_detected_license_values, tally_file_values, tally_file_values_filtered,
 };
 use super::{is_score_key_file, package_root};
+
+struct SummaryIndex {
+    summary_origin_package_ixs: Vec<usize>,
+    selected_package_ixs: Vec<usize>,
+    file_matches_summary_origin_package: Vec<bool>,
+    file_matches_selected_package: Vec<bool>,
+    file_under_nested_root: Vec<bool>,
+    summary_score_key_file_flags: Vec<bool>,
+}
+
+impl SummaryIndex {
+    fn build(files: &[FileInfo], packages: &[Package], indexes: &OutputIndexes) -> Self {
+        let package_roots: Vec<Option<String>> = packages
+            .iter()
+            .map(|package| package_root(package).map(|root| root.to_string_lossy().into_owned()))
+            .collect();
+        let top_level_roots = build_top_level_root_lookup(&package_roots);
+        let summary_origin_package_ixs =
+            build_summary_origin_package_ixs(packages, files, &package_roots, &top_level_roots);
+        let selected_package_ixs =
+            build_selected_package_ixs(packages, files, indexes, &summary_origin_package_ixs);
+        let summary_origin_package_uids: HashSet<&str> = summary_origin_package_ixs
+            .iter()
+            .map(|&ix| packages[ix].package_uid.as_str())
+            .collect();
+        let selected_package_uids: HashSet<&str> = selected_package_ixs
+            .iter()
+            .map(|&ix| packages[ix].package_uid.as_str())
+            .collect();
+        let nested_roots = build_nested_root_lookup(files, &package_roots, &top_level_roots);
+        let file_matches_summary_origin_package: Vec<bool> = files
+            .iter()
+            .map(|file| file_matches_package_uids(file, &summary_origin_package_uids))
+            .collect();
+        let file_matches_selected_package: Vec<bool> = files
+            .iter()
+            .map(|file| file_matches_package_uids(file, &selected_package_uids))
+            .collect();
+        let file_under_nested_root: Vec<bool> = files
+            .iter()
+            .map(|file| path_is_within_any_root(file.path.as_str(), &nested_roots))
+            .collect();
+        let summary_score_key_file_flags: Vec<bool> = files
+            .iter()
+            .zip(file_under_nested_root.iter())
+            .map(|(file, under_nested_root)| {
+                file.file_type == FileType::File
+                    && file.is_top_level
+                    && is_score_key_file(file)
+                    && !*under_nested_root
+            })
+            .collect();
+
+        Self {
+            summary_origin_package_ixs,
+            selected_package_ixs,
+            file_matches_summary_origin_package,
+            file_matches_selected_package,
+            file_under_nested_root,
+            summary_score_key_file_flags,
+        }
+    }
+}
 
 #[cfg(test)]
 pub(super) fn compute_summary(files: &[FileInfo], packages: &[Package]) -> Option<Summary> {
@@ -40,10 +103,10 @@ pub(super) fn compute_summary_with_options(
     include_summary_fields: bool,
     include_license_clarity_score: bool,
 ) -> Option<Summary> {
-    let top_level_package_uids = top_level_package_uids(packages, files, indexes);
+    let summary_index = SummaryIndex::build(files, packages, indexes);
     let declared_holders = compute_declared_holders(files, packages, indexes);
     let (score_declared_license_expression, score_clarity) =
-        compute_license_score(files, packages, &top_level_package_uids);
+        compute_license_score(files, &summary_index);
 
     let declared_holder = if include_summary_fields && !declared_holders.is_empty() {
         Some(declared_holders.join(", "))
@@ -51,7 +114,7 @@ pub(super) fn compute_summary_with_options(
         None
     };
     let primary_language = if include_summary_fields {
-        compute_primary_language(files, packages)
+        compute_primary_language(files, packages, &summary_index)
     } else {
         None
     };
@@ -61,7 +124,7 @@ pub(super) fn compute_summary_with_options(
         Vec::new()
     };
     let tallies = if include_summary_fields {
-        compute_summary_tallies(files, packages).unwrap_or_default()
+        compute_summary_tallies(files, packages, &summary_index).unwrap_or_default()
     } else {
         Tallies::default()
     };
@@ -77,7 +140,7 @@ pub(super) fn compute_summary_with_options(
     }
 
     let package_declared_license_expression = if include_summary_fields {
-        package_declared_license_expression(packages, files, indexes, &top_level_package_uids)
+        package_declared_license_expression(packages, files, indexes, &summary_index)
     } else {
         None
     };
@@ -165,12 +228,13 @@ fn package_declared_license_expression(
     packages: &[Package],
     files: &[FileInfo],
     indexes: &OutputIndexes,
-    top_level_package_uids: &HashSet<String>,
+    summary_index: &SummaryIndex,
 ) -> Option<String> {
     combine_license_expressions(stable_summary_expressions(
-        packages
+        summary_index
+            .selected_package_ixs
             .iter()
-            .filter(|package| top_level_package_uids.contains(&package.package_uid))
+            .filter_map(|&package_ix| packages.get(package_ix))
             .filter_map(|package| {
                 package.declared_license_expression.clone().or_else(|| {
                     package.datafile_paths.iter().find_map(|datafile_path| {
@@ -187,26 +251,23 @@ fn package_declared_license_expression(
 
 fn compute_license_score(
     files: &[FileInfo],
-    packages: &[Package],
-    top_level_package_uids: &HashSet<String>,
+    summary_index: &SummaryIndex,
 ) -> (Option<String>, LicenseClarityScore) {
-    let nested_package_roots = nested_summary_package_roots(packages, files);
     let key_files: Vec<&FileInfo> = files
         .iter()
-        .filter(|file| is_summary_score_key_file(file, &nested_package_roots))
-        .filter(|file| {
-            file.for_packages.is_empty()
-                || top_level_package_uids.is_empty()
-                || file
-                    .for_packages
-                    .iter()
-                    .any(|uid| top_level_package_uids.contains(uid))
+        .enumerate()
+        .filter(|(file_ix, _)| {
+            summary_index.summary_score_key_file_flags[*file_ix]
+                && summary_index.file_matches_selected_package[*file_ix]
         })
+        .map(|(_, file)| file)
         .collect();
     let non_key_files: Vec<&FileInfo> = files
         .iter()
-        .filter(|file| file.file_type == FileType::File)
-        .filter(|file| !is_summary_score_key_file(file, &nested_package_roots))
+        .enumerate()
+        .filter(|(_, file)| file.file_type == FileType::File)
+        .filter(|(file_ix, _)| !summary_index.summary_score_key_file_flags[*file_ix])
+        .map(|(_, file)| file)
         .collect();
 
     let key_file_expressions = stable_summary_expressions(
@@ -505,12 +566,11 @@ fn group_license_expressions(expressions: &[String]) -> (Vec<String>, Vec<String
     (unique_joined, single)
 }
 
-fn compute_summary_tallies(files: &[FileInfo], packages: &[Package]) -> Option<Tallies> {
-    let summary_origin_package_uids: HashSet<String> = summary_origin_packages(packages, files)
-        .into_iter()
-        .map(|package| package.package_uid.clone())
-        .collect();
-    let nested_package_roots = nested_summary_package_roots(packages, files);
+fn compute_summary_tallies(
+    files: &[FileInfo],
+    packages: &[Package],
+    summary_index: &SummaryIndex,
+) -> Option<Tallies> {
     let detected_license_expression = tally_file_values_filtered(
         files,
         |file| {
@@ -535,30 +595,38 @@ fn compute_summary_tallies(files: &[FileInfo], packages: &[Package]) -> Option<T
             true,
         )
     } else {
-        tally_file_values_filtered(
-            files,
-            |file| {
-                file.is_community
-                    || (file.is_top_level
-                        && file.is_key_file
-                        && !nested_package_roots
-                            .iter()
-                            .any(|root| Path::new(&file.path).starts_with(root))
-                        && (file.for_packages.is_empty()
-                            || summary_origin_package_uids.is_empty()
-                            || file
-                                .for_packages
-                                .iter()
-                                .any(|uid| summary_origin_package_uids.contains(uid))))
-            },
-            |file| {
-                file.holders
-                    .iter()
-                    .map(|holder| holder.holder.clone())
-                    .collect()
-            },
-            true,
-        )
+        let mut holder_counts: HashMap<Option<String>, usize> = HashMap::new();
+
+        for (file_ix, file) in files
+            .iter()
+            .enumerate()
+            .filter(|(_, file)| file.file_type == FileType::File)
+        {
+            let include_file = file.is_community
+                || (file.is_top_level
+                    && file.is_key_file
+                    && !summary_index.file_under_nested_root[file_ix]
+                    && summary_index.file_matches_summary_origin_package[file_ix]);
+            if !include_file {
+                continue;
+            }
+
+            let holders: Vec<String> = file
+                .holders
+                .iter()
+                .map(|holder| holder.holder.clone())
+                .collect();
+            if holders.is_empty() {
+                *holder_counts.entry(None).or_insert(0) += 1;
+                continue;
+            }
+
+            for holder in holders {
+                *holder_counts.entry(Some(holder)).or_insert(0) += 1;
+            }
+        }
+
+        build_tally_entries(holder_counts)
     };
     let authors = tally_file_values(files, author_values, true);
     let programming_language = tally_file_values(files, programming_language_values, false);
@@ -719,10 +787,16 @@ fn compute_declared_holders(
         .collect()
 }
 
-fn compute_primary_language(files: &[FileInfo], packages: &[Package]) -> Option<String> {
+fn compute_primary_language(
+    files: &[FileInfo],
+    packages: &[Package],
+    summary_index: &SummaryIndex,
+) -> Option<String> {
     let package_languages = unique(
-        &summary_origin_packages(packages, files)
-            .into_iter()
+        &summary_index
+            .summary_origin_package_ixs
+            .iter()
+            .filter_map(|&package_ix| packages.get(package_ix))
             .filter_map(summary_origin_package_primary_language)
             .collect::<Vec<_>>(),
     );
@@ -757,98 +831,98 @@ fn summary_origin_package_primary_language(package: &Package) -> Option<String> 
         })
 }
 
-fn summary_origin_packages<'a>(packages: &'a [Package], files: &[FileInfo]) -> Vec<&'a Package> {
+fn build_summary_origin_package_ixs(
+    packages: &[Package],
+    files: &[FileInfo],
+    package_roots: &[Option<String>],
+    top_level_roots: &HashSet<String>,
+) -> Vec<usize> {
     if packages.is_empty() {
         return Vec::new();
     }
 
-    let top_level_roots = top_level_summary_package_roots(packages);
     if top_level_roots.is_empty() {
-        return packages.iter().collect();
+        return (0..packages.len()).collect();
     }
 
-    let top_level_packages: Vec<&Package> = packages
+    let summary_origin_package_ixs: Vec<usize> = package_roots
         .iter()
-        .filter(|package| {
-            package_root(package)
-                .as_ref()
-                .is_some_and(|root| top_level_roots.iter().any(|top_level| top_level == root))
+        .enumerate()
+        .filter_map(|(package_ix, root)| {
+            root.as_ref()
+                .is_some_and(|root| top_level_roots.contains(root))
+                .then_some(package_ix)
         })
         .collect();
 
-    if top_level_packages.is_empty() && !files.is_empty() {
-        return packages.iter().collect();
+    if summary_origin_package_ixs.is_empty() && !files.is_empty() {
+        (0..packages.len()).collect()
+    } else {
+        summary_origin_package_ixs
     }
-
-    top_level_packages
 }
 
-fn top_level_package_uids(
+fn build_selected_package_ixs(
     packages: &[Package],
     files: &[FileInfo],
     indexes: &OutputIndexes,
-) -> HashSet<String> {
-    let top_level_packages = summary_origin_packages(packages, files);
-    let key_package_uids: HashSet<String> = top_level_packages
+    summary_origin_package_ixs: &[usize],
+) -> Vec<usize> {
+    let selected_package_ixs: Vec<usize> = summary_origin_package_ixs
         .iter()
-        .filter(|package| {
-            package.datafile_paths.iter().any(|datafile_path| {
-                indexes
-                    .file_ix_by_path(datafile_path)
-                    .and_then(|index| files.get(index.0))
-                    .is_some_and(|file| file.file_type == FileType::File)
-            })
+        .copied()
+        .filter(|&package_ix| {
+            packages[package_ix]
+                .datafile_paths
+                .iter()
+                .any(|datafile_path| {
+                    indexes
+                        .file_ix_by_path(datafile_path)
+                        .and_then(|index| files.get(index.0))
+                        .is_some_and(|file| file.file_type == FileType::File)
+                })
         })
-        .map(|package| package.package_uid.clone())
         .collect();
 
-    if key_package_uids.is_empty() {
-        top_level_packages
-            .into_iter()
-            .map(|package| package.package_uid.clone())
-            .collect()
+    if selected_package_ixs.is_empty() {
+        summary_origin_package_ixs.to_vec()
     } else {
-        key_package_uids
+        selected_package_ixs
     }
 }
 
-pub(super) fn top_level_summary_package_roots(packages: &[Package]) -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = packages.iter().filter_map(package_root).collect();
+fn build_top_level_root_lookup(package_roots: &[Option<String>]) -> HashSet<String> {
+    let mut roots: Vec<String> = package_roots.iter().flatten().cloned().collect();
     roots.sort_by(|left, right| {
-        left.components()
-            .count()
-            .cmp(&right.components().count())
+        path_component_count(left)
+            .cmp(&path_component_count(right))
             .then_with(|| left.cmp(right))
     });
     roots.dedup();
 
-    let mut top_level_roots = Vec::new();
+    let mut top_level_roots = HashSet::new();
     for root in roots {
-        if top_level_roots
-            .iter()
-            .any(|top_level| root.starts_with(top_level))
-        {
+        if path_has_parent_root(&root, &top_level_roots) {
             continue;
         }
-        top_level_roots.push(root);
+        top_level_roots.insert(root);
     }
 
     top_level_roots
 }
 
-pub(super) fn nested_summary_package_roots(
-    packages: &[Package],
+fn build_nested_root_lookup(
     files: &[FileInfo],
-) -> Vec<PathBuf> {
-    let top_level_roots = top_level_summary_package_roots(packages);
-    let mut nested_roots: Vec<PathBuf> = packages
+    package_roots: &[Option<String>],
+    top_level_roots: &HashSet<String>,
+) -> HashSet<String> {
+    let mut nested_roots: HashSet<String> = package_roots
         .iter()
-        .filter_map(package_root)
+        .flatten()
         .filter(|root| {
-            top_level_roots
-                .iter()
-                .any(|top_level| root != top_level && root.starts_with(top_level))
+            !top_level_roots.contains(root.as_str()) && path_has_parent_root(root, top_level_roots)
         })
+        .cloned()
         .collect();
 
     nested_roots.extend(
@@ -857,26 +931,59 @@ pub(super) fn nested_summary_package_roots(
             .filter(|file| {
                 file.file_type == FileType::File && file.is_manifest && !file.is_top_level
             })
-            .map(|file| {
-                Path::new(&file.path)
-                    .parent()
-                    .unwrap_or_else(|| Path::new(&file.path))
-            })
-            .map(Path::to_path_buf),
+            .map(|file| parent_dir(&file.path).to_string()),
     );
 
-    nested_roots.sort();
-    nested_roots.dedup();
     nested_roots
 }
 
-fn is_summary_score_key_file(file: &FileInfo, nested_package_roots: &[PathBuf]) -> bool {
-    file.file_type == FileType::File
-        && file.is_top_level
-        && is_score_key_file(file)
-        && !nested_package_roots
+fn file_matches_package_uids(file: &FileInfo, package_uids: &HashSet<&str>) -> bool {
+    file.for_packages.is_empty()
+        || package_uids.is_empty()
+        || file
+            .for_packages
             .iter()
-            .any(|root| Path::new(&file.path).starts_with(root))
+            .any(|package_uid| package_uids.contains(package_uid.as_str()))
+}
+
+fn path_component_count(path: &str) -> usize {
+    if path.is_empty() {
+        0
+    } else {
+        path.bytes().filter(|byte| *byte == b'/').count() + 1
+    }
+}
+
+fn path_has_parent_root(path: &str, roots: &HashSet<String>) -> bool {
+    if !path.is_empty() && roots.contains("") {
+        return true;
+    }
+
+    let mut current = parent_dir_for_lookup(path);
+    while let Some(candidate) = current {
+        if roots.contains(candidate) {
+            return true;
+        }
+        current = parent_dir_for_lookup(candidate);
+    }
+
+    false
+}
+
+fn path_is_within_any_root(path: &str, roots: &HashSet<String>) -> bool {
+    if roots.contains("") {
+        return true;
+    }
+
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if roots.contains(candidate) {
+            return true;
+        }
+        current = parent_dir_for_lookup(candidate);
+    }
+
+    false
 }
 
 fn compute_other_languages(files: &[FileInfo], primary_language: Option<&str>) -> Vec<TallyEntry> {
