@@ -272,6 +272,12 @@ Canonical hook and CI definitions live in [`lefthook.yml`](lefthook.yml), [`pack
 
 **All checks must pass before merging.**
 
+### Commits and Pull Request Titles
+
+- Write git commit messages in Conventional Commits format: `type(scope): short summary` when a scope adds clarity, or `type: short summary` otherwise. Mark breaking changes with `!` when needed.
+- Prefer lowercase conventional types such as `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `perf`, and `chore`, and keep the summary imperative, concise, and focused on what was accomplished and why.
+- Use the same Conventional Commits format for pull request titles so the PR title is squash-merge ready and consistent with release/changelog tooling.
+
 ### Opening Pull Requests
 
 - Use [`.github/pull_request_template.md`](.github/pull_request_template.md) for every agent-authored PR. The final PR body should follow its section structure, complete the applicable sections, and omit sections that do not apply.
