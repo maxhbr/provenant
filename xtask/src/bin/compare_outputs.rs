@@ -1,18 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
+use std::fs::{self, File};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::Digest;
 
 use provenant_xtask::common::{
     ScanProfile, derive_repo_name_from_url, ensure_release_binary, now_run_id, project_root,
-    realpath, render_tsv_table, resolve_scan_args, run_and_capture, sanitize_label, shell_join,
-    write_pretty_json, write_tsv,
+    realpath, render_tsv_table, resolve_scan_args, sanitize_label, shell_join, write_pretty_json,
+    write_tsv,
 };
 use provenant_xtask::manifests::{
     CommandInvocation, CommandsManifest, CompareArtifactsManifest, CompareRunManifest,
@@ -30,6 +31,8 @@ struct Args {
     repo_url: Option<String>,
     #[arg(long)]
     target_path: Option<PathBuf>,
+    #[arg(long, requires = "target_path")]
+    scancode_cache_identity: Option<String>,
     #[arg(long)]
     repo_ref: Option<String>,
     #[arg(long, value_enum)]
@@ -52,6 +55,7 @@ struct ContextState {
     target_label: String,
     target_source_label: String,
     target_revision: String,
+    target_scancode_cache_identity: Option<String>,
     repo_manifest: RepoManifest,
     worktree_retained_after_run: bool,
     profile_name: Option<String>,
@@ -109,9 +113,10 @@ struct ValueDifferenceEntry {
     extra_in_provenant: Vec<ValueCountEntry>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ScancodeCacheEntryManifest {
     cache_key: String,
+    cache_identity: Option<String>,
     target_label: String,
     target_revision: String,
     repo_url: Option<String>,
@@ -121,8 +126,10 @@ struct ScancodeCacheEntryManifest {
     scancode_runtime_dirty: bool,
     scancode_runtime_diff_hash: Option<String>,
     scancode_json: PathBuf,
-    scancode_stdout: PathBuf,
+    scancode_stdout: Option<PathBuf>,
 }
+
+const SCANCODE_PLACEHOLDER_LOG_MESSAGE: &str = "ScanCode stdout was not captured for this cache entry. Reused cached scancode.json without a corresponding log file.\n";
 
 fn main() -> Result<()> {
     let args = Args::parse();
@@ -193,7 +200,9 @@ fn main() -> Result<()> {
             }
         );
     } else {
-        println!("  ScanCode cache: disabled for local target paths\n");
+        println!(
+            "  ScanCode cache: disabled (repo-url runs require --repo-ref; target-path runs require --scancode-cache-identity)\n"
+        );
     }
 
     println!("[5/6] Running both scanners...");
@@ -220,11 +229,11 @@ fn main() -> Result<()> {
     );
     println!(
         "  ScanCode log:         {}",
-        context.scancode_stdout.display()
+        optional_artifact_display(&context.scancode_stdout)
     );
     println!(
         "  Provenant log:        {}",
-        context.provenant_stdout.display()
+        optional_artifact_display(&context.provenant_stdout)
     );
     println!("  Summary JSON:         {}", context.summary_json.display());
     println!("  Summary TSV:          {}", context.summary_tsv.display());
@@ -244,6 +253,20 @@ fn prepare_context(args: &Args, scan_args: Vec<String>) -> Result<ContextState> 
     }
     if args.repo_url.is_some() && args.repo_ref.is_none() {
         bail!("--repo-url requires --repo-ref (commit SHA, tag, or branch)");
+    }
+    if args.scancode_cache_identity.is_some() && args.target_path.is_none() {
+        bail!("--scancode-cache-identity can only be used with --target-path");
+    }
+    let target_scancode_cache_identity = args
+        .scancode_cache_identity
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string);
+    if target_scancode_cache_identity
+        .as_deref()
+        .is_some_and(str::is_empty)
+    {
+        bail!("--scancode-cache-identity must not be blank");
     }
 
     let project_root = project_root();
@@ -316,6 +339,7 @@ fn prepare_context(args: &Args, scan_args: Vec<String>) -> Result<ContextState> 
         target_label,
         target_source_label,
         target_revision: String::new(),
+        target_scancode_cache_identity,
         repo_manifest,
         worktree_retained_after_run: args.target_path.is_some(),
         profile_name: args
@@ -415,7 +439,7 @@ fn resolve_scancode_runtime_identity(context: &mut ContextState) -> Result<()> {
 }
 
 fn prepare_scancode_cache(context: &mut ContextState) -> Result<()> {
-    if context.repo_manifest.resolved_sha.is_none() {
+    if effective_scancode_cache_identity(context).is_none() {
         return Ok(());
     }
     fs::create_dir_all(&context.scancode_cache_root).with_context(|| {
@@ -430,6 +454,79 @@ fn prepare_scancode_cache(context: &mut ContextState) -> Result<()> {
     context.scancode_cache_hit = scancode_cache_complete(&cache_dir);
     context.scancode_cache_dir = Some(cache_dir);
     Ok(())
+}
+
+fn run_and_capture_optional_log(
+    program: &str,
+    args: &[String],
+    cwd: Option<&Path>,
+    log_path: &Path,
+) -> Result<(String, Option<String>)> {
+    let mut command = Command::new(program);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = command
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to execute {program}"))?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log_warning = write_optional_command_log(log_path, &combined);
+    if !output.status.success() {
+        bail!(build_command_failure_message(
+            program,
+            args,
+            &combined,
+            log_warning.as_deref()
+        ));
+    }
+    Ok((combined, log_warning))
+}
+
+fn build_command_failure_message(
+    program: &str,
+    args: &[String],
+    combined: &str,
+    log_warning: Option<&str>,
+) -> String {
+    let command = shell_join(
+        &std::iter::once(program.to_string())
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>(),
+    );
+    let mut message = format!("command failed: {command}");
+    if let Some(log_warning) = log_warning {
+        message.push('\n');
+        message.push_str(log_warning);
+    }
+    let combined = combined.trim();
+    if !combined.is_empty() {
+        message.push_str("\n--- command output ---\n");
+        message.push_str(combined);
+    }
+    message
+}
+
+fn write_optional_command_log(log_path: &Path, content: &str) -> Option<String> {
+    if let Some(parent) = log_path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        return Some(format!(
+            "failed to create log directory {}: {error}",
+            parent.display()
+        ));
+    }
+    if let Err(error) = fs::write(log_path, content) {
+        return Some(format!(
+            "failed to write optional command log {}: {error}",
+            log_path.display()
+        ));
+    }
+    None
 }
 
 fn ensure_scancode_runtime(context: &ContextState) -> Result<()> {
@@ -473,19 +570,22 @@ fn run_scancode(context: &mut ContextState) -> Result<()> {
     println!("Running ScanCode");
     println!("------------------------------------------");
     if context.scancode_cache_hit {
-        if let Err(error) = materialize_scancode_cache_hit(context) {
-            println!("  Cached ScanCode result unusable, rerunning: {error}");
-            if let Some(cache_dir) = &context.scancode_cache_dir {
-                let _ = fs::remove_dir_all(cache_dir);
+        match validate_and_materialize_scancode_cache_hit(context) {
+            Ok(log_warning) => {
+                if let Some(log_warning) = log_warning {
+                    println!("  Warning: {log_warning}");
+                }
+                println!(
+                    "  Reusing cached ScanCode artifacts from {}",
+                    context.scancode_cache_dir.as_ref().unwrap().display()
+                );
+                println!();
+                return Ok(());
             }
-            context.scancode_cache_hit = false;
-        } else {
-            println!(
-                "  Reusing cached ScanCode artifacts from {}",
-                context.scancode_cache_dir.as_ref().unwrap().display()
-            );
-            println!();
-            return Ok(());
+            Err(error) => {
+                println!("  Cached ScanCode result unusable, rerunning: {error}");
+                context.scancode_cache_hit = false;
+            }
         }
     }
     let args = build_scancode_docker_args(context);
@@ -497,7 +597,11 @@ fn run_scancode(context: &mut ContextState) -> Result<()> {
                 .collect::<Vec<_>>()
         )
     );
-    let combined = run_and_capture("docker", &args, None, &context.scancode_stdout)?;
+    let (combined, log_warning) =
+        run_and_capture_optional_log("docker", &args, None, &context.scancode_stdout)?;
+    if let Some(log_warning) = log_warning {
+        println!("  Warning: {log_warning}");
+    }
     for line in combined.lines() {
         println!("  {line}");
     }
@@ -519,12 +623,15 @@ fn run_provenant(context: &ContextState) -> Result<()> {
                 .collect::<Vec<_>>()
         )
     );
-    let combined = run_and_capture(
+    let (combined, log_warning) = run_and_capture_optional_log(
         context.provenant_bin.to_str().unwrap(),
         &args,
         Some(&context.target_dir),
         &context.provenant_stdout,
     )?;
+    if let Some(log_warning) = log_warning {
+        println!("  Warning: {log_warning}");
+    }
     for line in combined.lines() {
         println!("  {line}");
     }
@@ -1268,6 +1375,7 @@ fn write_manifest(context: &ContextState) -> Result<()> {
             runtime_revision: context.scancode_runtime_revision.clone(),
             runtime_dirty: context.scancode_runtime_dirty,
             runtime_diff_hash: context.scancode_runtime_diff_hash.clone(),
+            cache_identity: effective_scancode_cache_identity(context).map(str::to_string),
             cache_key: context.scancode_cache_key.clone(),
             cache_dir: context.scancode_cache_dir.clone(),
             cache_hit: context.scancode_cache_hit,
@@ -1328,15 +1436,36 @@ fn print_summary_table(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn build_scancode_cache_key(context: &ContextState) -> Result<String> {
-    let repo_url = context
+fn optional_artifact_display(path: &Path) -> String {
+    if path.is_file() {
+        match fs::read_to_string(path) {
+            Ok(content) if content == SCANCODE_PLACEHOLDER_LOG_MESSAGE => {
+                format!("placeholder diagnostic log: {}", path.display())
+            }
+            _ => path.display().to_string(),
+        }
+    } else {
+        format!(
+            "not written (optional diagnostic; intended path: {})",
+            path.display()
+        )
+    }
+}
+
+fn effective_scancode_cache_identity(context: &ContextState) -> Option<&str> {
+    context
         .repo_manifest
-        .url
+        .resolved_sha
         .as_deref()
-        .unwrap_or(&context.target_label);
+        .or(context.target_scancode_cache_identity.as_deref())
+}
+
+fn build_scancode_cache_key(context: &ContextState) -> Result<String> {
+    let cache_identity = effective_scancode_cache_identity(context)
+        .context("ScanCode cache identity missing while building cache key")?;
     let key_input = json!({
-        "repo_url": repo_url,
-        "target_revision": context.target_revision,
+        "repo_url": context.repo_manifest.url,
+        "cache_identity": cache_identity,
         "scancode_image": context.scancode_image,
         "scancode_runtime_revision": context.scancode_runtime_revision,
         "scancode_runtime_dirty": context.scancode_runtime_dirty,
@@ -1350,17 +1479,21 @@ fn build_scancode_cache_key(context: &ContextState) -> Result<String> {
         .iter()
         .map(|byte| format!("{:02x}", byte))
         .collect();
+    let label = context
+        .repo_manifest
+        .url
+        .as_deref()
+        .map(|repo_url| derive_repo_name_from_url(repo_url, "scancode"))
+        .unwrap_or_else(|| cache_identity.to_string());
     Ok(format!(
         "{}-{}",
-        sanitize_label(&derive_repo_name_from_url(repo_url, "scancode"), "scancode"),
+        sanitize_label(&label, "scancode"),
         &digest[..16]
     ))
 }
 
 fn scancode_cache_complete(cache_dir: &Path) -> bool {
-    cache_json_path(cache_dir).is_file()
-        && cache_stdout_path(cache_dir).is_file()
-        && cache_manifest_path(cache_dir).is_file()
+    cache_json_path(cache_dir).is_file() && cache_manifest_path(cache_dir).is_file()
 }
 
 fn cache_json_path(cache_dir: &Path) -> PathBuf {
@@ -1375,14 +1508,113 @@ fn cache_manifest_path(cache_dir: &Path) -> PathBuf {
     cache_dir.join("manifest.json")
 }
 
-fn materialize_scancode_cache_hit(context: &ContextState) -> Result<()> {
+fn validate_and_materialize_scancode_cache_hit(context: &ContextState) -> Result<Option<String>> {
+    validate_scancode_cache_hit(context)?;
+    materialize_scancode_cache_hit(context)
+}
+
+fn validate_scancode_cache_hit(context: &ContextState) -> Result<()> {
+    let cache_dir = context
+        .scancode_cache_dir
+        .as_ref()
+        .context("ScanCode cache dir missing on cache hit")?;
+    let expected_cache_key = context
+        .scancode_cache_key
+        .as_deref()
+        .context("ScanCode cache key missing on cache hit")?;
+    let expected_cache_identity = effective_scancode_cache_identity(context)
+        .context("ScanCode cache identity missing on cache hit")?;
+    let manifest: ScancodeCacheEntryManifest = serde_json::from_reader(BufReader::new(
+        File::open(cache_manifest_path(cache_dir)).with_context(|| {
+            format!(
+                "failed to open ScanCode cache manifest {}",
+                cache_manifest_path(cache_dir).display()
+            )
+        })?,
+    ))
+    .with_context(|| {
+        format!(
+            "failed to parse ScanCode cache manifest {}",
+            cache_manifest_path(cache_dir).display()
+        )
+    })?;
+    if manifest.cache_key != expected_cache_key {
+        bail!(
+            "ScanCode cache key mismatch: expected {}, found {}",
+            expected_cache_key,
+            manifest.cache_key
+        );
+    }
+    if manifest.cache_identity.as_deref() != Some(expected_cache_identity) {
+        bail!(
+            "ScanCode cache identity mismatch: expected {}, found {:?}",
+            expected_cache_identity,
+            manifest.cache_identity
+        );
+    }
+    if manifest.repo_url != context.repo_manifest.url {
+        bail!(
+            "ScanCode cache repo URL mismatch: expected {:?}, found {:?}",
+            context.repo_manifest.url,
+            manifest.repo_url
+        );
+    }
+    if manifest.scan_args != build_scancode_cli_args(context) {
+        bail!("ScanCode cache args mismatch");
+    }
+    if manifest.scancode_image != context.scancode_image {
+        bail!(
+            "ScanCode cache image mismatch: expected {}, found {}",
+            context.scancode_image,
+            manifest.scancode_image
+        );
+    }
+    if manifest.scancode_runtime_revision != context.scancode_runtime_revision {
+        bail!(
+            "ScanCode runtime revision mismatch: expected {}, found {}",
+            context.scancode_runtime_revision,
+            manifest.scancode_runtime_revision
+        );
+    }
+    if manifest.scancode_runtime_dirty != context.scancode_runtime_dirty {
+        bail!(
+            "ScanCode runtime dirty-state mismatch: expected {}, found {}",
+            context.scancode_runtime_dirty,
+            manifest.scancode_runtime_dirty
+        );
+    }
+    if manifest.scancode_runtime_diff_hash != context.scancode_runtime_diff_hash {
+        bail!("ScanCode runtime diff hash mismatch");
+    }
+    serde_json::from_reader::<_, Value>(BufReader::new(
+        File::open(cache_json_path(cache_dir)).with_context(|| {
+            format!(
+                "failed to open cached ScanCode JSON {}",
+                cache_json_path(cache_dir).display()
+            )
+        })?,
+    ))
+    .with_context(|| {
+        format!(
+            "failed to parse cached ScanCode JSON {}",
+            cache_json_path(cache_dir).display()
+        )
+    })?;
+    Ok(())
+}
+
+fn materialize_scancode_cache_hit(context: &ContextState) -> Result<Option<String>> {
     let cache_dir = context
         .scancode_cache_dir
         .as_ref()
         .context("ScanCode cache dir missing on cache hit")?;
     materialize_file(&cache_json_path(cache_dir), &context.scancode_json)?;
-    materialize_file(&cache_stdout_path(cache_dir), &context.scancode_stdout)?;
-    Ok(())
+    if cache_stdout_path(cache_dir).is_file() {
+        materialize_file(&cache_stdout_path(cache_dir), &context.scancode_stdout)?;
+        Ok(None)
+    } else {
+        Ok(write_placeholder_scancode_stdout(&context.scancode_stdout))
+    }
 }
 
 fn persist_scancode_cache_entry(context: &ContextState) -> Result<()> {
@@ -1396,9 +1628,16 @@ fn persist_scancode_cache_entry(context: &ContextState) -> Result<()> {
         )
     })?;
     materialize_file(&context.scancode_json, &cache_json_path(cache_dir))?;
-    materialize_file(&context.scancode_stdout, &cache_stdout_path(cache_dir))?;
+    let cache_stdout = if context.scancode_stdout.is_file() {
+        let cache_stdout = cache_stdout_path(cache_dir);
+        materialize_file(&context.scancode_stdout, &cache_stdout)?;
+        Some(cache_stdout)
+    } else {
+        None
+    };
     let manifest = ScancodeCacheEntryManifest {
         cache_key: context.scancode_cache_key.clone().unwrap_or_default(),
+        cache_identity: effective_scancode_cache_identity(context).map(str::to_string),
         target_label: context.target_label.clone(),
         target_revision: context.target_revision.clone(),
         repo_url: context.repo_manifest.url.clone(),
@@ -1408,10 +1647,14 @@ fn persist_scancode_cache_entry(context: &ContextState) -> Result<()> {
         scancode_runtime_dirty: context.scancode_runtime_dirty,
         scancode_runtime_diff_hash: context.scancode_runtime_diff_hash.clone(),
         scancode_json: cache_json_path(cache_dir),
-        scancode_stdout: cache_stdout_path(cache_dir),
+        scancode_stdout: cache_stdout,
     };
     write_pretty_json(&cache_manifest_path(cache_dir), &manifest)?;
     Ok(())
+}
+
+fn write_placeholder_scancode_stdout(path: &Path) -> Option<String> {
+    write_optional_command_log(path, SCANCODE_PLACEHOLDER_LOG_MESSAGE)
 }
 
 fn materialize_file(src: &Path, dst: &Path) -> Result<()> {
@@ -1435,5 +1678,246 @@ fn materialize_file(src: &Path, dst: &Path) -> Result<()> {
             })?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_context() -> ContextState {
+        ContextState {
+            project_root: PathBuf::from("/tmp/project"),
+            scancode_submodule_dir: PathBuf::from("/tmp/project/reference/scancode-toolkit"),
+            run_id: "run-id".to_string(),
+            run_dir: PathBuf::from("/tmp/project/.provenant/compare-runs/run-id"),
+            raw_dir: PathBuf::from("/tmp/project/.provenant/compare-runs/run-id/raw"),
+            comparison_dir: PathBuf::from("/tmp/project/.provenant/compare-runs/run-id/comparison"),
+            samples_dir: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/comparison/samples",
+            ),
+            run_manifest: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/run-manifest.json",
+            ),
+            summary_json: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/comparison/summary.json",
+            ),
+            summary_tsv: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/comparison/summary.tsv",
+            ),
+            target_dir: PathBuf::from("/tmp/target"),
+            target_label: "/tmp/target".to_string(),
+            target_source_label: "Target path".to_string(),
+            target_revision: "current local checkout".to_string(),
+            target_scancode_cache_identity: None,
+            repo_manifest: RepoManifest::new(None, None, None, None),
+            worktree_retained_after_run: true,
+            profile_name: Some("common".to_string()),
+            scan_args: vec![
+                "-clupe".to_string(),
+                "--system-package".to_string(),
+                "--strip-root".to_string(),
+            ],
+            provenant_bin: PathBuf::from("/tmp/project/target/release/provenant"),
+            provenant_json: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/raw/provenant.json",
+            ),
+            provenant_stdout: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/raw/provenant-stdout.txt",
+            ),
+            scancode_json: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/raw/scancode.json",
+            ),
+            scancode_stdout: PathBuf::from(
+                "/tmp/project/.provenant/compare-runs/run-id/raw/scancode-stdout.txt",
+            ),
+            scancode_image: "provenant-scancode-local:test".to_string(),
+            scancode_runtime_revision: "runtime-rev".to_string(),
+            scancode_runtime_dirty: false,
+            scancode_runtime_diff_hash: None,
+            scancode_cache_root: PathBuf::from("/tmp/project/.provenant/scancode-cache"),
+            scancode_cache_dir: None,
+            scancode_cache_key: None,
+            scancode_cache_hit: false,
+        }
+    }
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("compare-outputs-{name}-{nanos}"))
+    }
+
+    fn write_valid_cache_manifest(cache_dir: &Path, context: &ContextState) {
+        let manifest = ScancodeCacheEntryManifest {
+            cache_key: build_scancode_cache_key(context).unwrap(),
+            cache_identity: effective_scancode_cache_identity(context).map(str::to_string),
+            target_label: context.target_label.clone(),
+            target_revision: context.target_revision.clone(),
+            repo_url: context.repo_manifest.url.clone(),
+            scan_args: build_scancode_cli_args(context),
+            scancode_image: context.scancode_image.clone(),
+            scancode_runtime_revision: context.scancode_runtime_revision.clone(),
+            scancode_runtime_dirty: context.scancode_runtime_dirty,
+            scancode_runtime_diff_hash: context.scancode_runtime_diff_hash.clone(),
+            scancode_json: cache_json_path(cache_dir),
+            scancode_stdout: None,
+        };
+        write_pretty_json(&cache_manifest_path(cache_dir), &manifest).unwrap();
+    }
+
+    #[test]
+    fn target_path_cache_key_uses_explicit_identity_not_path() {
+        let mut first = test_context();
+        first.target_label = "/tmp/chromium-a".to_string();
+        first.target_scancode_cache_identity = Some("chromium@2befda78".to_string());
+
+        let mut second = test_context();
+        second.target_label = "/different/path/chromium-b".to_string();
+        second.target_scancode_cache_identity = Some("chromium@2befda78".to_string());
+
+        assert_eq!(
+            build_scancode_cache_key(&first).unwrap(),
+            build_scancode_cache_key(&second).unwrap()
+        );
+    }
+
+    #[test]
+    fn cache_complete_accepts_json_and_manifest_without_stdout() {
+        let cache_dir = unique_temp_dir("cache-complete");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(cache_json_path(&cache_dir), "{}\n").unwrap();
+        fs::write(cache_manifest_path(&cache_dir), "{}\n").unwrap();
+
+        assert!(scancode_cache_complete(&cache_dir));
+
+        let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    #[test]
+    fn placeholder_scancode_stdout_is_materialized_when_cache_log_is_missing() {
+        let temp_root = unique_temp_dir("placeholder-log");
+        let cache_dir = temp_root.join("cache");
+        let raw_dir = temp_root.join("raw");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::create_dir_all(&raw_dir).unwrap();
+        fs::write(cache_json_path(&cache_dir), "{}\n").unwrap();
+
+        let mut context = test_context();
+        context.target_scancode_cache_identity = Some("chromium@2befda78".to_string());
+        context.scancode_cache_dir = Some(cache_dir.clone());
+        context.scancode_cache_key = Some(build_scancode_cache_key(&context).unwrap());
+        context.scancode_json = raw_dir.join("scancode.json");
+        context.scancode_stdout = raw_dir.join("scancode-stdout.txt");
+
+        write_valid_cache_manifest(&cache_dir, &context);
+
+        let log_warning = materialize_scancode_cache_hit(&context).unwrap();
+
+        assert!(context.scancode_json.is_file());
+        let placeholder = fs::read_to_string(&context.scancode_stdout).unwrap();
+        assert!(placeholder.contains("stdout was not captured"));
+        assert!(log_warning.is_none());
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn optional_command_log_returns_warning_when_log_path_is_unwritable() {
+        let temp_root = unique_temp_dir("optional-log-warning");
+        fs::create_dir_all(&temp_root).unwrap();
+        let blocking_file = temp_root.join("not-a-directory");
+        fs::write(&blocking_file, "block").unwrap();
+
+        let warning = write_optional_command_log(&blocking_file.join("command.log"), "hello");
+
+        assert!(warning.is_some());
+        assert!(warning.unwrap().contains("failed to create log directory"));
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn optional_artifact_display_marks_missing_logs_as_optional() {
+        let missing = PathBuf::from("/tmp/missing-command-log.txt");
+
+        let display = optional_artifact_display(&missing);
+
+        assert!(display.contains("not written (optional diagnostic"));
+        assert!(display.contains(missing.to_str().unwrap()));
+    }
+
+    #[test]
+    fn optional_artifact_display_marks_placeholder_logs() {
+        let temp_root = unique_temp_dir("placeholder-display");
+        fs::create_dir_all(&temp_root).unwrap();
+        let placeholder = temp_root.join("scancode-stdout.txt");
+        fs::write(&placeholder, SCANCODE_PLACEHOLDER_LOG_MESSAGE).unwrap();
+
+        let display = optional_artifact_display(&placeholder);
+
+        assert!(display.contains("placeholder diagnostic log"));
+        assert!(display.contains(placeholder.to_str().unwrap()));
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn command_failure_message_includes_output_and_log_warning() {
+        let message = build_command_failure_message(
+            "docker",
+            &["run".to_string(), "example".to_string()],
+            "scanner failed\nmore detail",
+            Some("failed to write optional command log /tmp/log.txt: permission denied"),
+        );
+
+        assert!(message.contains("command failed: docker run example"));
+        assert!(message.contains("failed to write optional command log /tmp/log.txt"));
+        assert!(message.contains("--- command output ---"));
+        assert!(message.contains("scanner failed"));
+        assert!(message.contains("more detail"));
+    }
+
+    #[test]
+    fn cache_validation_rejects_empty_manifest() {
+        let temp_root = unique_temp_dir("invalid-manifest");
+        let cache_dir = temp_root.join("cache");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(cache_json_path(&cache_dir), "{}\n").unwrap();
+        fs::write(cache_manifest_path(&cache_dir), "{}\n").unwrap();
+
+        let mut context = test_context();
+        context.target_scancode_cache_identity = Some("chromium@2befda78".to_string());
+        context.scancode_cache_dir = Some(cache_dir.clone());
+        context.scancode_cache_key = Some(build_scancode_cache_key(&context).unwrap());
+
+        let error = validate_scancode_cache_hit(&context)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("failed to parse ScanCode cache manifest"));
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn prepare_context_rejects_blank_scancode_cache_identity() {
+        let args = Args {
+            repo_url: None,
+            target_path: Some(PathBuf::from("/tmp/chromium")),
+            scancode_cache_identity: Some("   ".to_string()),
+            repo_ref: None,
+            profile: None,
+            scan_args: Vec::new(),
+        };
+
+        let error = prepare_context(&args, vec!["-p".to_string()])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("must not be blank"));
     }
 }

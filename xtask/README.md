@@ -122,6 +122,7 @@ CLI arguments:
 - `--repo-url URL`: compare the given repository URL via the shared repo cache.
 - `--repo-ref REF`: required with `--repo-url`; commit SHA, tag, or branch to resolve and compare.
 - `--target-path PATH`: compare an existing local directory in place.
+- `--scancode-cache-identity ID`: optional with `--target-path`; opt in to shared ScanCode cache reuse for a caller-asserted local snapshot identity.
 - `--profile common`: convenience shorthand for `-clupe --system-package --strip-root`.
 - `--profile licenses`: convenience shorthand for `-l --strip-root`.
 - `--profile packages`: convenience shorthand for `-p --strip-root`.
@@ -144,16 +145,19 @@ Each run writes artifacts under:
 
 - `.provenant/compare-runs/<run-id>/`
 
-Important files:
+Core files:
 
 - `run-manifest.json`
 - `raw/scancode.json`
 - `raw/provenant.json`
-- `raw/scancode-stdout.txt`
-- `raw/provenant-stdout.txt`
 - `comparison/summary.json`
 - `comparison/summary.tsv`
 - `comparison/samples/*.json`
+
+Optional diagnostic logs when available:
+
+- `raw/scancode-stdout.txt`
+- `raw/provenant-stdout.txt`
 
 ### Notes
 
@@ -164,7 +168,9 @@ Important files:
 - `--repo-url` mode requires `--repo-ref`; the command records both the requested ref and the resolved full commit SHA in `run-manifest.json`.
 - Repo URL runs reuse cached git objects from `.provenant/repo-cache/`, and the temporary detached checkout is removed after the run so compare artifacts do not retain duplicate full repository trees.
 - Repo URL runs also reuse cached raw ScanCode artifacts from `.provenant/scancode-cache/` when the resolved target commit, ScanCode runtime identity, and effective ScanCode scan args are unchanged.
-- Local `--target-path` runs currently always rerun ScanCode; the shared ScanCode cache is only enabled for ref-pinned repo URL targets where the snapshot identity is explicit.
+- Local `--target-path` runs rerun ScanCode by default. Pass `--scancode-cache-identity <id>` to opt into shared ScanCode cache reuse for a local snapshot you have identified explicitly.
+- Cache hits now require a cached `scancode.json` plus cache `manifest.json`; `scancode-stdout.txt` is reused when available but is no longer required for cache completeness.
+- `scancode-stdout.txt` and `provenant-stdout.txt` are best-effort diagnostic logs. The compare pipeline only requires the JSON outputs, so a log-write failure no longer makes the command fail.
 - The command always adds shared ignore rules for `*.git*` and `target/*` to both scanners so repository metadata and build output do not dominate the comparison artifacts.
 
 ## `update-parser-golden`
