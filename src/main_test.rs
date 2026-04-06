@@ -624,10 +624,25 @@ fn from_json_recomputes_top_level_outputs_after_package_inheritance_following() 
     );
 
     let top_level = collect_top_level_license_detections(&loaded.files);
+    let bsd_new_detections = top_level
+        .iter()
+        .filter(|detection| detection.license_expression == "bsd-new")
+        .collect::<Vec<_>>();
+    assert_eq!(bsd_new_detections.len(), 2);
     assert!(
-        top_level
+        bsd_new_detections
             .iter()
-            .any(|detection| { detection.license_expression == "bsd-new" })
+            .all(|detection| detection.detection_count == 1)
+    );
+    assert!(
+        bsd_new_detections
+            .iter()
+            .any(|detection| detection.detection_log.is_empty())
+    );
+    assert!(
+        bsd_new_detections.iter().any(|detection| {
+            detection.detection_log == ["unknown-reference-in-file-to-package"]
+        })
     );
 
     let engine = LicenseDetectionEngine::from_embedded().expect("embedded engine should load");

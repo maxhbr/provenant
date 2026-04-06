@@ -22,8 +22,7 @@ use analysis::{
     has_correct_license_clue_matches,
 };
 pub(crate) use analysis::{determine_license_expression, determine_spdx_expression};
-use identifier::compute_detection_identifier;
-use identifier::{compute_content_identifier, compute_detection_coverage, python_safe_name};
+use identifier::{compute_detection_coverage, compute_detection_identifier};
 
 /// Matches with line gap > this are considered separate groups.
 /// Corresponds to Python's LINES_THRESHOLD = 4 (query.py:108)
@@ -98,10 +97,8 @@ pub(crate) fn populate_detection_from_group(
     detection.detection_log.push(log_category.to_string());
 
     // Compute identifier like Python: detection.identifier = detection.identifier_with_expression
-    if let Some(ref expr) = detection.license_expression {
-        let id_safe_expression = python_safe_name(expr);
-        let content_uuid = compute_content_identifier(&detection.matches);
-        detection.identifier = Some(format!("{}-{}", id_safe_expression, content_uuid));
+    if detection.license_expression.is_some() {
+        detection.identifier = Some(compute_detection_identifier(detection));
     } else {
         detection.identifier = None;
     }
@@ -218,7 +215,6 @@ pub(crate) fn get_unique_detections(detections: &[LicenseDetection]) -> Vec<Uniq
 
     for detection in detections {
         let Some(identifier) = detection.identifier.as_ref() else {
-            let _ = compute_detection_identifier(detection);
             continue;
         };
 
@@ -497,12 +493,7 @@ fn promote_non_clue_no_expression_detections(
             detection
                 .detection_log
                 .push(DETECTION_LOG_NOT_LICENSE_CLUES_AS_MORE_DETECTIONS_PRESENT.to_string());
-            let content_uuid = compute_content_identifier(&detection.matches);
-            detection.identifier = Some(format!(
-                "{}-{}",
-                python_safe_name(&license_expression),
-                content_uuid
-            ));
+            detection.identifier = Some(compute_detection_identifier(detection));
         }
     }
 
@@ -1539,6 +1530,26 @@ mod tests {
         assert_eq!(unique.len(), 1);
         assert_eq!(unique[0].identifier, "mit-shared");
         assert_eq!(unique[0].file_regions.len(), 2);
+    }
+
+    #[test]
+    fn test_get_unique_detections_skips_detections_without_identifier() {
+        let detection = LicenseDetection {
+            license_expression: Some("mit".to_string()),
+            license_expression_spdx: Some("MIT".to_string()),
+            matches: vec![create_perfect_match(1, 10)],
+            detection_log: vec![],
+            identifier: None,
+            file_regions: vec![FileRegion {
+                path: "src/one.rs".to_string(),
+                start_line: 1,
+                end_line: 10,
+            }],
+        };
+
+        let unique = get_unique_detections(&[detection]);
+
+        assert!(unique.is_empty());
     }
 
     #[test]
