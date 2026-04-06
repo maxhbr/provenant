@@ -17,11 +17,7 @@ pub(crate) use self::reference_following::collect_top_level_license_detections;
 use self::reference_following::{
     build_reference_follow_snapshot, resolve_referenced_resource, use_referenced_license_expression,
 };
-#[cfg(test)]
-use self::summary::compute_summary;
 use self::summary::compute_summary_with_options;
-#[cfg(test)]
-use self::summary::get_primary_license;
 use self::tallies::{
     compute_detailed_tallies, compute_file_tallies, compute_key_file_tallies, compute_tallies,
     compute_tallies_by_facet,
@@ -59,8 +55,6 @@ mod package_metadata_promotion;
 mod reference_following;
 mod summary;
 mod summary_helpers;
-#[cfg(test)]
-mod summary_test;
 mod tallies;
 #[cfg(test)]
 mod tallies_test;

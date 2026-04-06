@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 mod index;
+#[cfg(test)]
+mod test;
 
 use crate::license_detection::expression::{
     LicenseExpression, parse_expression, simplify_expression,
