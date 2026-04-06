@@ -4,11 +4,11 @@ use crate::models::{FileInfo, FileType, Package};
 use crate::utils::path::{parent_dir, parent_dir_for_lookup};
 
 use super::super::output_indexes::OutputIndexes;
-use super::super::{is_score_key_file, package_root};
+use super::super::{FileIx, PackageIx, is_score_key_file, package_root};
 
 pub(super) struct SummaryIndex {
-    summary_origin_package_ixs: Vec<usize>,
-    selected_package_ixs: Vec<usize>,
+    summary_origin_package_ixs: Vec<PackageIx>,
+    selected_package_ixs: Vec<PackageIx>,
     file_matches_summary_origin_package: Vec<bool>,
     file_matches_selected_package: Vec<bool>,
     file_under_nested_root: Vec<bool>,
@@ -28,11 +28,11 @@ impl SummaryIndex {
             build_selected_package_ixs(packages, files, indexes, &summary_origin_package_ixs);
         let summary_origin_package_uids: HashSet<&str> = summary_origin_package_ixs
             .iter()
-            .map(|&ix| packages[ix].package_uid.as_str())
+            .map(|package_ix| packages[package_ix.0].package_uid.as_str())
             .collect();
         let selected_package_uids: HashSet<&str> = selected_package_ixs
             .iter()
-            .map(|&ix| packages[ix].package_uid.as_str())
+            .map(|package_ix| packages[package_ix.0].package_uid.as_str())
             .collect();
         let nested_roots = build_nested_root_lookup(files, &package_roots, &top_level_roots);
         let file_matches_summary_origin_package: Vec<bool> = files
@@ -74,7 +74,7 @@ impl SummaryIndex {
     ) -> impl Iterator<Item = &'a Package> + 'a {
         self.selected_package_ixs
             .iter()
-            .filter_map(|&package_ix| packages.get(package_ix))
+            .filter_map(|package_ix| packages.get(package_ix.0))
     }
 
     pub(super) fn summary_origin_packages<'a>(
@@ -83,23 +83,23 @@ impl SummaryIndex {
     ) -> impl Iterator<Item = &'a Package> + 'a {
         self.summary_origin_package_ixs
             .iter()
-            .filter_map(|&package_ix| packages.get(package_ix))
+            .filter_map(|package_ix| packages.get(package_ix.0))
     }
 
-    pub(super) fn matches_summary_origin_package(&self, file_ix: usize) -> bool {
-        self.file_matches_summary_origin_package[file_ix]
+    pub(super) fn matches_summary_origin_package(&self, file_ix: FileIx) -> bool {
+        self.file_matches_summary_origin_package[file_ix.0]
     }
 
-    pub(super) fn matches_selected_package(&self, file_ix: usize) -> bool {
-        self.file_matches_selected_package[file_ix]
+    pub(super) fn matches_selected_package(&self, file_ix: FileIx) -> bool {
+        self.file_matches_selected_package[file_ix.0]
     }
 
-    pub(super) fn is_under_nested_root(&self, file_ix: usize) -> bool {
-        self.file_under_nested_root[file_ix]
+    pub(super) fn is_under_nested_root(&self, file_ix: FileIx) -> bool {
+        self.file_under_nested_root[file_ix.0]
     }
 
-    pub(super) fn is_summary_score_key_file(&self, file_ix: usize) -> bool {
-        self.summary_score_key_file_flags[file_ix]
+    pub(super) fn is_summary_score_key_file(&self, file_ix: FileIx) -> bool {
+        self.summary_score_key_file_flags[file_ix.0]
     }
 }
 
@@ -108,27 +108,27 @@ fn build_summary_origin_package_ixs(
     files: &[FileInfo],
     package_roots: &[Option<String>],
     top_level_roots: &HashSet<String>,
-) -> Vec<usize> {
+) -> Vec<PackageIx> {
     if packages.is_empty() {
         return Vec::new();
     }
 
     if top_level_roots.is_empty() {
-        return (0..packages.len()).collect();
+        return (0..packages.len()).map(PackageIx).collect();
     }
 
-    let summary_origin_package_ixs: Vec<usize> = package_roots
+    let summary_origin_package_ixs: Vec<PackageIx> = package_roots
         .iter()
         .enumerate()
         .filter_map(|(package_ix, root)| {
             root.as_ref()
                 .is_some_and(|root| top_level_roots.contains(root))
-                .then_some(package_ix)
+                .then_some(PackageIx(package_ix))
         })
         .collect();
 
     if summary_origin_package_ixs.is_empty() && !files.is_empty() {
-        (0..packages.len()).collect()
+        (0..packages.len()).map(PackageIx).collect()
     } else {
         summary_origin_package_ixs
     }
@@ -138,13 +138,13 @@ fn build_selected_package_ixs(
     packages: &[Package],
     files: &[FileInfo],
     indexes: &OutputIndexes,
-    summary_origin_package_ixs: &[usize],
-) -> Vec<usize> {
-    let selected_package_ixs: Vec<usize> = summary_origin_package_ixs
+    summary_origin_package_ixs: &[PackageIx],
+) -> Vec<PackageIx> {
+    let selected_package_ixs: Vec<PackageIx> = summary_origin_package_ixs
         .iter()
         .copied()
-        .filter(|&package_ix| {
-            packages[package_ix]
+        .filter(|package_ix| {
+            packages[package_ix.0]
                 .datafile_paths
                 .iter()
                 .any(|datafile_path| {

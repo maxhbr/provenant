@@ -13,6 +13,7 @@ use crate::models::{
 use crate::utils::spdx::combine_license_expressions;
 
 use self::index::SummaryIndex;
+use super::FileIx;
 use super::output_indexes::OutputIndexes;
 use super::summary_helpers::{
     canonicalize_summary_expression, canonicalize_summary_holder_display,
@@ -195,8 +196,9 @@ fn compute_license_score(
         .iter()
         .enumerate()
         .filter(|(file_ix, _)| {
-            summary_index.is_summary_score_key_file(*file_ix)
-                && summary_index.matches_selected_package(*file_ix)
+            let file_ix = FileIx(*file_ix);
+            summary_index.is_summary_score_key_file(file_ix)
+                && summary_index.matches_selected_package(file_ix)
         })
         .map(|(_, file)| file)
         .collect();
@@ -204,7 +206,7 @@ fn compute_license_score(
         .iter()
         .enumerate()
         .filter(|(_, file)| file.file_type == FileType::File)
-        .filter(|(file_ix, _)| !summary_index.is_summary_score_key_file(*file_ix))
+        .filter(|(file_ix, _)| !summary_index.is_summary_score_key_file(FileIx(*file_ix)))
         .map(|(_, file)| file)
         .collect();
 
@@ -540,6 +542,7 @@ fn compute_summary_tallies(
             .enumerate()
             .filter(|(_, file)| file.file_type == FileType::File)
         {
+            let file_ix = FileIx(file_ix);
             let include_file = file.is_community
                 || (file.is_top_level
                     && file.is_key_file

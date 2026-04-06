@@ -36,6 +36,12 @@ use crate::scanner;
 #[cfg(test)]
 use crate::utils::generated::generated_code_hints;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct FileIx(pub(super) usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct PackageIx(pub(super) usize);
+
 mod classification;
 #[cfg(test)]
 mod classify_test;
