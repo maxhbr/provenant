@@ -4,14 +4,14 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-use crate::cache::{CacheConfig, DEFAULT_CACHE_DIR_NAME, build_collection_exclude_patterns};
+use crate::cache::{build_collection_exclude_patterns, CacheConfig, DEFAULT_CACHE_DIR_NAME};
 use crate::license_detection::LicenseDetectionEngine;
 use crate::post_processing::{
-    DEFAULT_LICENSEDB_URL_TEMPLATE, apply_package_reference_following,
-    collect_top_level_license_detections, collect_top_level_license_references,
+    apply_package_reference_following, collect_top_level_license_detections,
+    collect_top_level_license_references, DEFAULT_LICENSEDB_URL_TEMPLATE,
 };
 use crate::scan_result_shaping::json_input::{
-    JsonScanInput, load_scan_from_json, normalize_loaded_json_scan,
+    load_scan_from_json, normalize_loaded_json_scan, JsonScanInput,
 };
 use crate::scanner::collect_paths;
 
@@ -499,11 +499,9 @@ fn from_json_recomputes_top_level_outputs_after_manifest_reference_following() {
     );
 
     let top_level = collect_top_level_license_detections(&loaded.files);
-    assert!(
-        top_level
-            .iter()
-            .any(|detection| detection.license_expression == "mit")
-    );
+    assert!(top_level
+        .iter()
+        .any(|detection| detection.license_expression == "mit"));
 
     let engine = LicenseDetectionEngine::from_embedded().expect("embedded engine should load");
     let (license_references, license_rule_references) = collect_top_level_license_references(
@@ -512,11 +510,9 @@ fn from_json_recomputes_top_level_outputs_after_manifest_reference_following() {
         engine.index(),
         DEFAULT_LICENSEDB_URL_TEMPLATE,
     );
-    assert!(
-        license_references
-            .iter()
-            .any(|reference| reference.key.as_deref() == Some("mit"))
-    );
+    assert!(license_references
+        .iter()
+        .any(|reference| reference.key.as_deref() == Some("mit")));
     assert!(license_rule_references.iter().any(|rule| {
         rule.identifier == "unknown-license-reference_see_license_at_manifest_1.RULE"
     }));
@@ -624,11 +620,20 @@ fn from_json_recomputes_top_level_outputs_after_package_inheritance_following() 
     );
 
     let top_level = collect_top_level_license_detections(&loaded.files);
-    assert!(
-        top_level
-            .iter()
-            .any(|detection| { detection.license_expression == "bsd-new" })
-    );
+    let bsd_new_detections = top_level
+        .iter()
+        .filter(|detection| detection.license_expression == "bsd-new")
+        .collect::<Vec<_>>();
+    assert_eq!(bsd_new_detections.len(), 2);
+    assert!(bsd_new_detections
+        .iter()
+        .all(|detection| detection.detection_count == 1));
+    assert!(bsd_new_detections
+        .iter()
+        .any(|detection| detection.detection_log.is_empty()));
+    assert!(bsd_new_detections
+        .iter()
+        .any(|detection| { detection.detection_log == ["unknown-reference-in-file-to-package"] }));
 
     let engine = LicenseDetectionEngine::from_embedded().expect("embedded engine should load");
     let (license_references, license_rule_references) = collect_top_level_license_references(
@@ -637,16 +642,12 @@ fn from_json_recomputes_top_level_outputs_after_package_inheritance_following() 
         engine.index(),
         DEFAULT_LICENSEDB_URL_TEMPLATE,
     );
-    assert!(
-        license_references
-            .iter()
-            .any(|reference| { reference.key.as_deref() == Some("bsd-new") })
-    );
-    assert!(
-        license_rule_references
-            .iter()
-            .any(|rule| rule.identifier == "free-unknown-package_1.RULE")
-    );
+    assert!(license_references
+        .iter()
+        .any(|reference| { reference.key.as_deref() == Some("bsd-new") }));
+    assert!(license_rule_references
+        .iter()
+        .any(|rule| rule.identifier == "free-unknown-package_1.RULE"));
 }
 
 fn json_file(path: &str, file_type: crate::models::FileType) -> crate::models::FileInfo {
@@ -809,12 +810,10 @@ fn build_collection_exclude_patterns_skips_default_cache_dir() {
     let exclude_patterns = build_collection_exclude_patterns(&scan_root, config.root_dir());
     let collected = collect_paths(&scan_root, 0, &exclude_patterns);
 
-    assert!(
-        collected
-            .files
-            .iter()
-            .all(|(path, _)| !path.starts_with(config.root_dir()))
-    );
+    assert!(collected
+        .files
+        .iter()
+        .all(|(path, _)| !path.starts_with(config.root_dir())));
     assert!(collected.excluded_count >= 1);
 }
 
@@ -836,12 +835,10 @@ fn build_collection_exclude_patterns_skips_explicit_in_tree_cache_dir() {
     let exclude_patterns = build_collection_exclude_patterns(&scan_root, config.root_dir());
     let collected = collect_paths(&scan_root, 0, &exclude_patterns);
 
-    assert!(
-        collected
-            .files
-            .iter()
-            .all(|(path, _)| !path.starts_with(&explicit_cache_dir))
-    );
+    assert!(collected
+        .files
+        .iter()
+        .all(|(path, _)| !path.starts_with(&explicit_cache_dir)));
     assert!(collected.excluded_count >= 1);
 }
 
