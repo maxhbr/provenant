@@ -52,7 +52,7 @@ cargo run --quiet --locked --manifest-path xtask/Cargo.toml --bin generate-suppo
 ./scripts/check_release_version_sync.sh
 ```
 
-The GitHub `Quality Checks` workflow is the authoritative release gate. It also verifies the embedded license index, dependency policy via `cargo-deny`, crate size, manifest sorting, unused dependencies, golden-test shards, Windows and Intel macOS build smoke, and the split integration-test matrix defined in `.github/workflows/check.yml`. It is best to start from a branch and commit state where that workflow is already green.
+The GitHub `Quality Checks` workflow is the primary pre-release quality gate. It verifies the embedded license index, dependency policy via `cargo-deny`, crate size, manifest sorting, unused dependencies, golden-test shards, Windows and Intel macOS build smoke, and the split integration-test matrix defined in `.github/workflows/check.yml`. It is best to start from a branch and commit state where that workflow is already green. The tag-triggered release workflow adds one final embedded-license-index verification before it builds and publishes release artifacts.
 
 ## Release Commands
 
@@ -87,12 +87,17 @@ On every release attempt, the script:
 
 The repository is configured so `cargo release`:
 
-- Creates the release commit as `chore: release vX.Y.Z`
+- Creates the release commit as `chore: release`
 - Rewrites `CITATION.cff` so its `version` field matches the release version
 - Regenerates the workspace `Cargo.lock` after bumping the crate version and before creating the release commit
 - Creates a GPG-signed tag `vX.Y.Z`
 - Publishes the crate to crates.io
 - Pushes the commit and tag to GitHub
+
+The release commit subject is intentionally versionless because `cargo release`
+uses the workspace-level commit configuration during release commits, and in
+`cargo-release` `0.25.x` the `{{version}}` placeholder is not reliable in that
+path.
 
 ## GitHub Release Automation
 
@@ -106,7 +111,7 @@ That workflow:
   - `x86_64-apple-darwin`
   - `aarch64-apple-darwin`
   - `x86_64-pc-windows-msvc`
-- Separately verifies the embedded license index before building release artifacts
+- Re-runs embedded license index verification as a final release-time safeguard before building artifacts
 - Packages each build with platform-first asset names so archives sort by operating system on the release page:
   - `provenant-linux-x86_64.tar.gz`
   - `provenant-linux-aarch64.tar.gz`

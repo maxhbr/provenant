@@ -38,8 +38,9 @@ ignored = ["md-5", "kamadak-exif"]
 sign-tag = true
 # Push automatically
 push = true
-# Commit message template
-pre-release-commit-message = "chore: release v{{version}}"
+# Use a versionless subject because workspace release commits cannot
+# reliably interpolate {{version}} in cargo-release 0.25.x.
+pre-release-commit-message = "chore: release"
 pre-release-replacements = [
     { file = "CITATION.cff", search = '^version: ".*"$', replace = 'version: "{{version}}"' },
 ]
@@ -52,6 +53,10 @@ publish = true
 [workspace]
 resolver = "3"
 members = ["xtask"]
+
+[workspace.metadata.release]
+# Consolidated workspace release commits read their subject from workspace config.
+pre-release-commit-message = "chore: release"
 
 [workspace.dependencies]
 anyhow = "1.0.102"
