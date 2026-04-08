@@ -1747,6 +1747,9 @@ fn extend_inline_obfuscated_angle_email_suffixes(
             .or_insert_with(|| {
                 let line = prepared_cache.get(ln)?;
                 let prepared = normalize_whitespace(line);
+                if !contains_obfuscated_email_markers(&prepared) {
+                    return None;
+                }
                 refine_copyright(&prepared)
             })
             .as_deref()
@@ -1772,6 +1775,17 @@ fn extend_inline_obfuscated_angle_email_suffixes(
         }
         c.copyright = refined_line.to_string();
     }
+}
+
+fn contains_obfuscated_email_markers(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let has_at = [" at ", "(at)", "[at]", "<at>", "{at}"]
+        .iter()
+        .any(|needle| lower.contains(needle));
+    let has_dot = [" dot ", "(dot)", "[dot]", "<dot>", "{dot}"]
+        .iter()
+        .any(|needle| lower.contains(needle));
+    has_at && has_dot
 }
 
 fn strip_lone_obfuscated_angle_email_user_tokens(
