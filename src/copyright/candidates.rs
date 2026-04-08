@@ -287,9 +287,12 @@ pub type NumberedLine = (usize, String);
 /// group through the lexer/parser pipeline.
 ///
 /// This mirrors the Python `collect_candidate_lines()` function.
-pub fn collect_candidate_lines(
-    numbered_lines: impl IntoIterator<Item = (usize, String)>,
-) -> Vec<Vec<NumberedLine>> {
+pub fn collect_candidate_lines<T>(
+    numbered_lines: impl IntoIterator<Item = (usize, T)>,
+) -> Vec<Vec<NumberedLine>>
+where
+    T: AsRef<str>,
+{
     let mut groups: Vec<Vec<NumberedLine>> = Vec::new();
     let mut candidates: Vec<NumberedLine> = Vec::new();
 
@@ -304,6 +307,7 @@ pub fn collect_candidate_lines(
     let mut prev_prepared_is_copy_start_with_year = false;
 
     for (ln, line) in numbered_lines {
+        let line = line.as_ref();
         let lower_trim = line.trim_start();
         let lower_trim = lower_trim
             .trim_start_matches(['*', '/', '#', ';', '!'])

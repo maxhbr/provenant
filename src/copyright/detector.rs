@@ -116,20 +116,14 @@ pub fn detect_copyrights_from_text_with_deadline(
 
     let allow_not_copyrighted_prefix = NOT_COPYRIGHTED_RE.find_iter(content).count() == 1;
 
-    let numbered_lines: Vec<(usize, String)> = content
-        .lines()
-        .enumerate()
-        .map(|(i, line)| (i + 1, line.to_string()))
-        .collect();
-
     let raw_lines: Vec<&str> = content.lines().collect();
     let mut prepared_cache = PreparedLineCache::new(&raw_lines);
 
-    if numbered_lines.is_empty() {
+    if raw_lines.is_empty() {
         return (copyrights, holders, authors);
     }
 
-    let groups = collect_candidate_lines(numbered_lines);
+    let groups = collect_candidate_lines(raw_lines.iter().enumerate().map(|(i, line)| (i + 1, *line)));
 
     for group in &groups {
         if deadline_exceeded(deadline) {
