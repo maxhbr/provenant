@@ -287,9 +287,12 @@ pub type NumberedLine = (usize, String);
 /// group through the lexer/parser pipeline.
 ///
 /// This mirrors the Python `collect_candidate_lines()` function.
-pub fn collect_candidate_lines(
-    numbered_lines: impl IntoIterator<Item = (usize, String)>,
-) -> Vec<Vec<NumberedLine>> {
+pub fn collect_candidate_lines<T>(
+    numbered_lines: impl IntoIterator<Item = (usize, T)>,
+) -> Vec<Vec<NumberedLine>>
+where
+    T: AsRef<str>,
+{
     let mut groups: Vec<Vec<NumberedLine>> = Vec::new();
     let mut candidates: Vec<NumberedLine> = Vec::new();
 
@@ -304,6 +307,7 @@ pub fn collect_candidate_lines(
     let mut prev_prepared_is_copy_start_with_year = false;
 
     for (ln, line) in numbered_lines {
+        let line = line.as_ref();
         let lower_trim = line.trim_start();
         let lower_trim = lower_trim
             .trim_start_matches(['*', '/', '#', ';', '!'])
@@ -315,7 +319,7 @@ pub fn collect_candidate_lines(
             || lower_trim.starts_with("author(s):")
             || lower_trim.starts_with("author:")
             || lower_trim.starts_with("author(s)"))
-            && !hints::has_year(&line)
+            && !hints::has_year(line)
             && !lower_trim.contains("copyright")
             && !lower_trim.contains("(c)")
             && !lower_trim.contains("copr");
@@ -339,7 +343,7 @@ pub fn collect_candidate_lines(
         }
 
         // Skip long lines without copyright indicators (minified JS, binary data).
-        if line.len() > MAX_LINE_LENGTH && !has_copyright_indicators(&line) {
+        if line.len() > MAX_LINE_LENGTH && !has_copyright_indicators(line) {
             if in_copyright > 0 {
                 in_copyright -= 1;
                 if in_copyright == 0 && !candidates.is_empty() {
@@ -352,7 +356,7 @@ pub fn collect_candidate_lines(
 
         // Skip encoded data lines (uuencode, base64) that trigger false
         // positives from weak hint markers like `@`.
-        if is_encoded_data_line(&line) {
+        if is_encoded_data_line(line) {
             if in_copyright > 0 {
                 in_copyright -= 1;
                 if in_copyright == 0 && !candidates.is_empty() {
@@ -363,10 +367,10 @@ pub fn collect_candidate_lines(
             continue;
         }
 
-        let co = chars_only(&line);
+        let co = chars_only(line);
 
         if is_end_of_statement(&co) {
-            let prepared = prepare_text_line(&line);
+            let prepared = prepare_text_line(line);
 
             let prepared_is_copy_start_with_year = is_copy_marker_start(prepared.trim_start());
 
@@ -395,12 +399,12 @@ pub fn collect_candidate_lines(
             in_copyright = 0;
             previous_chars = None;
             prev_prepared_is_copy_start_with_year = prepared_is_copy_start_with_year;
-        } else if hints::is_candidate(&line) || co.contains("http") {
-            if is_code_line_with_false_c(&line) {
+        } else if hints::is_candidate(line) || co.contains("http") {
+            if is_code_line_with_false_c(line) {
                 continue;
             }
 
-            let prepared = prepare_text_line(&line);
+            let prepared = prepare_text_line(line);
             let prepared_chars = chars_only(&prepared);
 
             let prepared_is_copy_start_with_year = is_copy_marker_start(prepared.trim_start());
@@ -470,7 +474,7 @@ pub fn collect_candidate_lines(
             prev_prepared_is_copy_start_with_year = prepared_is_copy_start_with_year;
         } else if in_copyright > 0 {
             // Inside a copyright block — check if we should continue or break.
-            let prepared = prepare_text_line(&line);
+            let prepared = prepare_text_line(line);
             let trimmed = prepared.trim_start();
             let lower = trimmed.to_ascii_lowercase();
 
@@ -493,7 +497,7 @@ pub fn collect_candidate_lines(
                 prev_prepared_is_copy_start_with_year = false;
                 continue;
             }
-            if is_obvious_code_line(&line) && !has_copyright_indicators(&line) {
+            if is_obvious_code_line(line) && !has_copyright_indicators(line) {
                 if !candidates.is_empty() {
                     groups.push(std::mem::take(&mut candidates));
                 }
@@ -504,7 +508,7 @@ pub fn collect_candidate_lines(
             }
 
             let is_standalone_comment_without_indicators =
-                is_standalone_comment_line(&line) && !has_copyright_indicators(&prepared);
+                is_standalone_comment_line(line) && !has_copyright_indicators(&prepared);
             let is_indented_standalone_comment = line.trim_start().starts_with("/*")
                 && line.trim_end().ends_with("*/")
                 && !line.starts_with("/*");
@@ -531,7 +535,7 @@ pub fn collect_candidate_lines(
                         previous_chars = None;
                         prev_prepared_is_copy_start_with_year = false;
                     } else {
-                        candidates.push((ln, prepare_text_line(&line)));
+                        candidates.push((ln, prepare_text_line(line)));
                         in_copyright -= 1;
                     }
                 } else {
@@ -543,7 +547,7 @@ pub fn collect_candidate_lines(
                     previous_chars = None;
                     prev_prepared_is_copy_start_with_year = false;
                 }
-            } else if is_tabular_noise_line(&line) {
+            } else if is_tabular_noise_line(line) {
                 if !candidates.is_empty() {
                     groups.push(std::mem::take(&mut candidates));
                 }
@@ -551,7 +555,7 @@ pub fn collect_candidate_lines(
                 previous_chars = None;
                 prev_prepared_is_copy_start_with_year = false;
             } else {
-                candidates.push((ln, prepare_text_line(&line)));
+                candidates.push((ln, prepare_text_line(line)));
                 in_copyright -= 1;
             }
         } else if !candidates.is_empty() {

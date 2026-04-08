@@ -116,20 +116,15 @@ pub fn detect_copyrights_from_text_with_deadline(
 
     let allow_not_copyrighted_prefix = NOT_COPYRIGHTED_RE.find_iter(content).count() == 1;
 
-    let numbered_lines: Vec<(usize, String)> = content
-        .lines()
-        .enumerate()
-        .map(|(i, line)| (i + 1, line.to_string()))
-        .collect();
-
     let raw_lines: Vec<&str> = content.lines().collect();
     let mut prepared_cache = PreparedLineCache::new(&raw_lines);
 
-    if numbered_lines.is_empty() {
+    if raw_lines.is_empty() {
         return (copyrights, holders, authors);
     }
 
-    let groups = collect_candidate_lines(numbered_lines);
+    let groups =
+        collect_candidate_lines(raw_lines.iter().enumerate().map(|(i, line)| (i + 1, *line)));
 
     for group in &groups {
         if deadline_exceeded(deadline) {
@@ -1722,6 +1717,8 @@ fn extend_inline_obfuscated_angle_email_suffixes(
         return;
     }
 
+    let mut refined_line_cache: HashMap<usize, Option<String>> = HashMap::new();
+
     static OBF_TAIL_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"(?ix)^(?:[,;:()\[\]{}]+\s*)?(?P<user>[a-z0-9][a-z0-9._-]{0,63})\s+at\s+(?P<host>[a-z0-9][a-z0-9._-]{0,63})\s+dot\s+(?P<tld>[a-z]{2,12})\s*$",
@@ -1740,11 +1737,18 @@ fn extend_inline_obfuscated_angle_email_suffixes(
         }
 
         let ln = c.start_line;
-        let Some(line) = prepared_cache.get(ln) else {
-            continue;
-        };
-        let prepared = normalize_whitespace(line);
-        let Some(refined_line) = refine_copyright(&prepared) else {
+        let Some(refined_line) = refined_line_cache
+            .entry(ln)
+            .or_insert_with(|| {
+                let line = prepared_cache.get(ln)?;
+                let prepared = normalize_whitespace(line);
+                if !contains_obfuscated_email_markers(&prepared) {
+                    return None;
+                }
+                refine_copyright(&prepared)
+            })
+            .as_deref()
+        else {
             continue;
         };
 
@@ -1764,8 +1768,19 @@ fn extend_inline_obfuscated_angle_email_suffixes(
         if OBF_TAIL_RE.captures(tail).is_none() {
             continue;
         }
-        c.copyright = refined_line;
+        c.copyright = refined_line.to_string();
     }
+}
+
+fn contains_obfuscated_email_markers(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let has_at = [" at ", "(at)", "[at]", "<at>", "{at}"]
+        .iter()
+        .any(|needle| lower.contains(needle));
+    let has_dot = [" dot ", "(dot)", "[dot]", "<dot>", "{dot}"]
+        .iter()
+        .any(|needle| lower.contains(needle));
+    has_at && has_dot
 }
 
 fn strip_lone_obfuscated_angle_email_user_tokens(
