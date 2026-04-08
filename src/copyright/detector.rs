@@ -123,7 +123,8 @@ pub fn detect_copyrights_from_text_with_deadline(
         return (copyrights, holders, authors);
     }
 
-    let groups = collect_candidate_lines(raw_lines.iter().enumerate().map(|(i, line)| (i + 1, *line)));
+    let groups =
+        collect_candidate_lines(raw_lines.iter().enumerate().map(|(i, line)| (i + 1, *line)));
 
     for group in &groups {
         if deadline_exceeded(deadline) {
