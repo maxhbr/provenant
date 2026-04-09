@@ -547,6 +547,21 @@ fn extract_dependency_requirement(version_value: Option<&Value>) -> Option<Strin
 }
 
 fn extract_file_hashes(file: &JsonMap<String, Value>) -> ArtifactHashes {
+    let sha256 = file
+        .get("sha256")
+        .and_then(Value::as_str)
+        .and_then(|value| Sha256Digest::from_hex(value).ok());
+
+    let sha512_field = file.get("sha512").and_then(Value::as_str);
+    let (sha256, sha512) = match sha512_field {
+        Some(hex) if hex.len() == 64 && hex::decode(hex).is_ok() => {
+            let misassigned = Sha256Digest::from_hex(hex).ok();
+            (sha256.or(misassigned), None)
+        }
+        Some(hex) => (sha256, Sha512Digest::from_hex(hex).ok()),
+        None => (sha256, None),
+    };
+
     (
         file.get("size").and_then(Value::as_u64),
         file.get("sha1")
@@ -555,12 +570,8 @@ fn extract_file_hashes(file: &JsonMap<String, Value>) -> ArtifactHashes {
         file.get("md5")
             .and_then(Value::as_str)
             .and_then(|value| Md5Digest::from_hex(value).ok()),
-        file.get("sha256")
-            .and_then(Value::as_str)
-            .and_then(|value| Sha256Digest::from_hex(value).ok()),
-        file.get("sha512")
-            .and_then(Value::as_str)
-            .and_then(|value| Sha512Digest::from_hex(value).ok()),
+        sha256,
+        sha512,
     )
 }
 
