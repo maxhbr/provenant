@@ -2668,13 +2668,13 @@ classifiers = ["Private :: Do Not Upload"]
       "packagetype": "bdist_wheel",
       "url": "https://files.pythonhosted.org/packages/example/attrs-24.1.0-py3-none-any.whl",
       "size": 12345,
-      "digests": {"sha256": "aaaa0000000000000000000000000000000000000000000000000000000000ww"}
+      "digests": {"sha256": "aaaa0000000000000000000000000000000000000000000000000000000000bb"}
     },
     {
       "packagetype": "sdist",
       "url": "https://files.pythonhosted.org/packages/source/a/attrs/attrs-24.1.0.tar.gz",
       "size": 67890,
-      "digests": {"sha256": "aaaa0000000000000000000000000000000000000000000000000000000000ss"}
+      "digests": {"sha256": "aaaa0000000000000000000000000000000000000000000000000000000000cc"}
     }
   ]
 }
@@ -2712,7 +2712,7 @@ classifiers = ["Private :: Do Not Upload"]
             package_data.sha256,
             Some(
                 Sha256Digest::from_hex(
-                    "aaaa0000000000000000000000000000000000000000000000000000000000ss"
+                    "aaaa0000000000000000000000000000000000000000000000000000000000cc"
                 )
                 .unwrap()
             )

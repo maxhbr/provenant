@@ -12,8 +12,10 @@ macro_rules! define_digest {
         pub struct $name([u8; $byte_len]);
 
         impl $name {
+            #[allow(dead_code)]
             pub const EMPTY: Self = Self([0u8; $byte_len]);
 
+            #[allow(dead_code)]
             pub const fn from_bytes(bytes: [u8; $byte_len]) -> Self {
                 Self(bytes)
             }
@@ -26,6 +28,7 @@ macro_rules! define_digest {
                 Ok(Self(array))
             }
 
+            #[allow(dead_code)]
             pub fn as_bytes(&self) -> &[u8; $byte_len] {
                 &self.0
             }

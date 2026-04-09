@@ -12,6 +12,7 @@ use crate::models::{
 };
 
 use super::PackageParser;
+use super::utils::parse_sri;
 
 const FIELD_VERSION: &str = "version";
 const FIELD_SPECIFIERS: &str = "specifiers";
@@ -230,7 +231,14 @@ fn build_jsr_dependency(
             sha256: jsr_object
                 .get("integrity")
                 .and_then(Value::as_str)
-                .and_then(|value| Sha256Digest::from_hex(value).ok()),
+                .and_then(|value| {
+                    parse_sri(value)
+                        .and_then(|(algo, hex)| {
+                            (algo == "sha256").then(|| Sha256Digest::from_hex(&hex).ok())
+                        })
+                        .flatten()
+                        .or_else(|| Sha256Digest::from_hex(value).ok())
+                }),
             sha512: None,
             md5: None,
             is_virtual: true,
@@ -282,7 +290,13 @@ fn build_npm_dependency(
             sha512: npm_object
                 .get("integrity")
                 .and_then(Value::as_str)
-                .and_then(|value| Sha512Digest::from_hex(value).ok()),
+                .and_then(|value| {
+                    parse_sri(value)
+                        .and_then(|(algo, hex)| {
+                            (algo == "sha512").then(|| Sha512Digest::from_hex(&hex).ok())
+                        })
+                        .flatten()
+                }),
             md5: None,
             is_virtual: true,
             extra_data: None,

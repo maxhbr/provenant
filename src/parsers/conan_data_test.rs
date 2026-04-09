@@ -86,7 +86,7 @@ sources:
     url:
       - "https://mirror1.com/package-1.5.0.tar.gz"
       - "https://mirror2.com/package-1.5.0.tar.gz"
-    sha256: "xyz7890000000000000000000000000000000000000000000000000000000000"
+    sha256: "abc7890000000000000000000000000000000000000000000000000000000000"
 "#;
         let packages = parse_conandata_yml(content);
         assert_eq!(packages.len(), 1);
@@ -101,7 +101,7 @@ sources:
             pkg.sha256,
             Some(
                 Sha256Digest::from_hex(
-                    "xyz7890000000000000000000000000000000000000000000000000000000000"
+                    "abc7890000000000000000000000000000000000000000000000000000000000"
                 )
                 .unwrap()
             )
