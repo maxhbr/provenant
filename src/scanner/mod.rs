@@ -245,7 +245,7 @@ mod tests {
         let emails: Vec<(&str, usize)> = scanned
             .emails
             .iter()
-            .map(|email| (email.email.as_str(), email.start_line))
+            .map(|email| (email.email.as_str(), email.start_line.get()))
             .collect();
 
         assert_eq!(emails.len(), 4, "emails: {emails:#?}");
@@ -426,7 +426,13 @@ mod tests {
         let authors: Vec<(&str, usize, usize)> = scanned
             .authors
             .iter()
-            .map(|author| (author.author.as_str(), author.start_line, author.end_line))
+            .map(|author| {
+                (
+                    author.author.as_str(),
+                    author.start_line.get(),
+                    author.end_line.get(),
+                )
+            })
             .collect();
 
         assert_eq!(
