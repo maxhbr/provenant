@@ -29,8 +29,8 @@ use std::fs;
 use std::path::Path;
 use yaml_serde::Value;
 
-use super::yarn_lock::extract_namespace_and_name;
 use super::PackageParser;
+use super::yarn_lock::extract_namespace_and_name;
 
 /// pnpm lockfile parser supporting v5, v6, and v9 formats.
 ///
