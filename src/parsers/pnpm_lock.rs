@@ -24,13 +24,13 @@ use crate::models::{
     DatasourceId, Dependency, Md5Digest, PackageData, PackageType, ResolvedPackage, Sha1Digest,
     Sha256Digest, Sha512Digest,
 };
-use crate::parsers::utils::npm_purl;
+use crate::parsers::utils::{npm_purl, parse_sri};
 use std::fs;
 use std::path::Path;
 use yaml_serde::Value;
 
-use super::PackageParser;
 use super::yarn_lock::extract_namespace_and_name;
+use super::PackageParser;
 
 /// pnpm lockfile parser supporting v5, v6, and v9 formats.
 ///
@@ -664,7 +664,6 @@ pub fn create_purl(namespace: &Option<String>, name: &str, version: &str) -> Str
     npm_purl(&full_name, Some(version)).unwrap_or_else(|| format!("pkg:npm/{}", name))
 }
 
-/// Parse integrity field to extract sha1, sha256, sha512, and md5
 fn parse_integrity(
     integrity: &str,
 ) -> (
@@ -673,21 +672,20 @@ fn parse_integrity(
     Option<String>,
     Option<String>,
 ) {
-    if let Some(dash_pos) = integrity.find('-') {
-        let algo = integrity[..dash_pos].to_lowercase();
-        let hash = integrity[dash_pos + 1..].to_string();
+    let (algo, hex_digest) = match parse_sri(integrity) {
+        Some(pair) => pair,
+        None => return (None, None, None, None),
+    };
 
-        if algo.contains("sha1") {
-            (Some(hash), None, None, None)
-        } else if algo.contains("sha256") {
-            (None, Some(hash), None, None)
-        } else if algo.contains("sha512") {
-            (None, None, Some(hash), None)
-        } else if algo.contains("md5") {
-            (None, None, None, Some(hash))
-        } else {
-            (None, None, None, None)
-        }
+    let algo_lower = algo.to_lowercase();
+    if algo_lower.contains("sha1") {
+        (Some(hex_digest), None, None, None)
+    } else if algo_lower.contains("sha256") {
+        (None, Some(hex_digest), None, None)
+    } else if algo_lower.contains("sha512") {
+        (None, None, Some(hex_digest), None)
+    } else if algo_lower.contains("md5") {
+        (None, None, None, Some(hex_digest))
     } else {
         (None, None, None, None)
     }
@@ -788,14 +786,14 @@ mod tests {
     #[test]
     fn test_parse_integrity() {
         let (sha1, sha256, sha512, md5) = parse_integrity(
-            "sha512-luRj/9OnHgR0f5t4e38q9K9A7l4t8uq4nB/eZ/eZ/e2/e3/e4/e5/e6/e7/e8/e9/e0/eva",
+            "sha512-9NET910DNaIPngYnLLPeg+Ogzqsi9uM4mSboU5y6p8S5DzMTVEsJZrawi+BoDNUVBa2DhJqQYUFvMDfgU062LQ==",
         );
         assert!(sha1.is_none());
         assert!(sha256.is_none());
         assert!(sha512.is_some());
         assert!(md5.is_none());
 
-        let (sha1, sha256, sha512, md5) = parse_integrity("sha1-abc123");
+        let (sha1, sha256, sha512, md5) = parse_integrity("sha1-w7M6te42DYbg5ijwRorn7yfWVN8=");
         assert!(sha1.is_some());
         assert!(sha256.is_none());
         assert!(sha512.is_none());
