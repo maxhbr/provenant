@@ -319,7 +319,7 @@ fn spdx_package_verification_code(files: &[&FileInfo]) -> String {
 
     let mut hasher = Sha1::new();
     for sha1 in file_sha1s {
-        hasher.update(sha1.as_bytes());
+        hasher.update(sha1.as_hex().as_bytes());
     }
     hex::encode(hasher.finalize())
 }
