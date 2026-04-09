@@ -1082,15 +1082,11 @@ checksum = "55d9ccda37e95b4f0978a3074b4a9939979103a7256459cfb449c9c84d1adf23"
 
 [[package]]
 name = "file-identify"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76557a9e4e1e2d1184808a7c5e7171fe17f818e0b91e252ae42202972b45babf"
+checksum = "65bcb07cab12d98e5603d19780a1ffd68e3ec15c5102769d12615cb473173cab"
 dependencies = [
- "clap",
- "once_cell",
  "phf 0.12.1",
- "serde",
- "serde_json",
  "smallvec",
  "thiserror 2.0.18",
 ]
