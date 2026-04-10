@@ -92,6 +92,29 @@ sudo mv provenant /usr/local/bin/
 
 On Windows, extract the `.zip` release and add `provenant.exe` to your `PATH`.
 
+### With Nix
+
+Provenant includes a Nix flake. To build and run without cloning:
+
+```sh
+nix run github:mstykow/provenant -- --help
+```
+
+To build the binary into a `result/` symlink:
+
+```sh
+nix build github:mstykow/provenant
+./result/bin/provenant --version
+```
+
+To enter a development shell with the pinned Rust toolchain, rust-analyzer, and Node.js tooling:
+
+```sh
+git clone https://github.com/mstykow/provenant.git
+cd provenant
+nix develop
+```
+
 ### Build from Source
 
 For a normal source build, you only need the Rust toolchain:

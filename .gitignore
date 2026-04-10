@@ -21,6 +21,9 @@
 Thumbs.db
 desktop.ini
 
+# Nix build output
+/result
+
 # cargo-dist
 dist/
 
